@@ -165,3 +165,17 @@ progress::-moz-progress-bar {background:#4b9973}
 .evaluation-body .evaluation-notice {margin:0;color:var(--green)}
 .rerun-panel .rerun-notice {padding:0 17px 14px;margin-top:0}
 @media(max-width:480px) {.main-tabs button,.intake-tabs button {padding-inline:8px}.rerun-panel .panel-head {align-items:flex-start;flex-direction:column}}
+
+.welcome-modal {position:fixed;inset:50dvh auto auto 50dvw;transform:translate(-50%,-50%);margin:0;width:min(calc(100dvw - 24px),580px);max-height:calc(100dvh - 24px);overscroll-behavior:contain}
+body:has(.welcome-modal[open]) {overflow:hidden}
+.welcome-modal::backdrop {background:#0d251c73}
+.welcome-heading {display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:22px 22px 14px;border-bottom:1px solid var(--line);background:#f2f8f4}
+.welcome-heading h2 {font-size:clamp(20px,4.5vw,25px);max-width:28ch}
+.welcome-body {display:grid;gap:13px;padding:16px 22px 22px;color:var(--muted);font-size:14px;line-height:1.5}
+.welcome-disclaimer {padding:10px 12px;border-radius:8px;background:#f0f5f2;font-size:13px}
+.welcome-disclaimer strong {display:block;color:var(--ink)}
+.welcome-body .primary {min-width:164px}
+@media(max-width:480px) {
+  .welcome-heading,.welcome-body {padding-inline:16px}
+  .welcome-body .primary {width:100%}
+}
