@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDown, ArrowRight, BadgeCheck, Banknote, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
+import { readRequestedDocuments, saveRequestedDocuments } from '../lib/document-request-session';
 
 import { intakeTabs, nextWorkflowAction, retainOutstandingRequests, type IntakeTab, type ReviewDecision } from '../lib/workflow';
 import { AgentEvaluation } from './agent-evaluation';
@@ -49,6 +50,28 @@ export default function Home() {
   const [applications, setApplications] = useState<Record<string, Application>>(() =>
     Object.fromEntries(applicants.map((applicant, index) => [applicant.id, createApplication(index)])),
   );
+  const [requestsRestored, setRequestsRestored] = useState(false);
+  useEffect(() => {
+    const saved = applicants.map(applicant => [applicant.id, readRequestedDocuments(applicant.id)] as const);
+    setApplications(previous => {
+      const restored = {...previous};
+      for (const [id, requested] of saved) {
+        const application = previous[id];
+        const outstanding = application.required.filter(type => documentStatus(application.docs, type) === 'Missing');
+        restored[id] = {...application, requestedDocuments:retainOutstandingRequests(requested, outstanding)};
+      }
+      return restored;
+    });
+    setRequestsRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!requestsRestored) return;
+    for (const applicant of applicants) {
+      saveRequestedDocuments(applicant.id, applications[applicant.id].requestedDocuments);
+    }
+  }, [applications, requestsRestored]);
+
   const activeApplication = useRef(applicationId);
   const {docs, required, manual, assumptions, request, proposalReviewed, status, rerunNotice, message, requestedDocuments} = applications[applicationId];
   const index = applicants.findIndex(applicant => applicant.id === applicationId);
@@ -107,7 +130,7 @@ export default function Home() {
   const applicantName = applicant?.name ?? 'This application';
   const requestSent = nextAction.target === 'request-sent';
   const summary = requestSent
-    ? 'The agent identified missing documentation and a request has been sent to the client. Next: Awaiting outstanding documents.'
+    ? 'The agent identified missing documentation and the document request has been sent. Awaiting client response.'
     : decisionRecorded ? applicantName + (approved ? ' was approved in this demo.' : ' was declined in this demo.')
     : pending ? 'I’m processing documents for ' + (applicant?.name ?? 'this application') + '.'
     : missing.length ? (docs.length ? 'I reviewed the documents on file for ' + (applicant?.name ?? 'this application') + '. ' : '') + 'Still needed: ' + missing.join(', ').toLowerCase() + '.'
@@ -239,7 +262,9 @@ export default function Home() {
     const requested = emailDocuments.filter(type => unrequested.includes(type));
     setModal(null);
     if (!requested.length) return;
-    updateApplication(current => ({requestedDocuments:[...new Set([...current.requestedDocuments, ...requested])]}));
+    const updatedRequests = [...new Set([...requestedDocuments, ...requested])];
+    updateApplication({requestedDocuments:updatedRequests});
+    if (applicant) saveRequestedDocuments(applicant.id, updatedRequests);
     setSendConfirmation({applicationId});
   }
 
@@ -489,7 +514,7 @@ export default function Home() {
           <textarea rows={12} value={draft} required onChange={event => setDraft(event.target.value)} aria-label="Message body"/>
         </form>}
         {modal === 'samples' && <div className="modal-body"><p>Process a fictional PDF in this browser or download it to test the upload flow.</p>{types.map((type, i) => <div className="sample-row" key={type}><span><FileText size={17}/>{type}</span><button className="secondary" onClick={() => void processSample(type)} disabled={message.startsWith('Loading')}>Process PDF</button><a className="icon-button framed" href={'/samples/' + Math.max(0,index) + '-' + samples[i] + '.pdf'} download aria-label={'Download ' + type}><Download size={16}/></a></div>)}<span aria-live="polite">{message}</span></div>}
-        {modal === 'help' && <div className="modal-body"><p>This portfolio demo models document intake, financial analysis, and human review with fictional applicants.</p><p><Sparkles size={17}/> PDF.js reads selectable text. Rules match supported labels and surface source filenames. Extraction has no calibrated confidence score.</p><p><ClipboardCheck size={17}/> Decisions and simulated email sends remain in this browser session. Refresh to reset the demo.</p><p><ListChecks size={17}/> Verification statuses are illustrative. Successful PDF extraction reads labeled text and does not establish document authenticity.</p></div>}
+        {modal === 'help' && <div className="modal-body"><p>This portfolio demo models document intake, financial analysis, and human review with fictional applicants.</p><p><Sparkles size={17}/> PDF.js reads selectable text. Rules match supported labels and surface source filenames. Extraction has no calibrated confidence score.</p><p><ClipboardCheck size={17}/> Simulated document requests are remembered across refreshes in this tab. Refreshing resets application edits and decisions.</p><p><ListChecks size={17}/> Verification statuses are illustrative. Successful PDF extraction reads labeled text and does not establish document authenticity.</p></div>}
       </dialog>}
   </div>;
 }
