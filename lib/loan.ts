@@ -6,14 +6,17 @@ export const fields = {
 };
 export type Field = keyof typeof fields;
 export type Values = Partial<Record<Field, number>>;
+export const product = 'Secured Line of Credit';
+export type DocumentStatus = 'Received and Verified' | 'Pending Verification' | 'Missing';
 export type DocumentRecord = {
-  id: string; name: string; type: DocType; status: 'Processing' | 'Simulated' | 'Extracted' | 'Needs review';
+  id: string; name: string; type: DocType; status: Exclude<DocumentStatus, 'Missing'>;
+  extraction?: 'processing' | 'extracted' | 'failed';
   values: Values; detail?: string; href?: string;
 };
 export const applicants = [
-  { name: 'Morgan Ellis', id: 'LP-1042', initials: 'ME', purpose: 'Home improvement', request: 85000, values: {annual: 126000, monthly: 10500, cash: 34800, investments: 72500, debt: 2175, collateral: 140000}},
-  { name: 'Jordan Hayes', id: 'LP-1043', initials: 'JH', purpose: 'Debt consolidation', request: 48000, values: {annual: 78000, monthly: 6500, cash: 17500, investments: 23000, debt: 1820, collateral: 60000}},
-  { name: 'Casey Rivera', id: 'LP-1044', initials: 'CR', purpose: 'Home improvement', request: 110000, values: {annual: 156000, monthly: 13000, cash: 61800, investments: 89500, debt: 2800, collateral: 165000}},
+  { name: 'John Smith', email: 'johnsmith@gmail.com', id: 'LP-1042', initials: 'JS', request: 85000, values: {annual: 126000, monthly: 10500, cash: 34800, investments: 72500, debt: 2175, collateral: 140000}},
+  { name: 'Jordan Hayes', id: 'LP-1043', initials: 'JH', request: 48000, values: {annual: 78000, monthly: 6500, cash: 17500, investments: 23000, debt: 1820, collateral: 60000}},
+  { name: 'Casey Rivera', id: 'LP-1044', initials: 'CR', request: 110000, values: {annual: 156000, monthly: 13000, cash: 61800, investments: 89500, debt: 2800, collateral: 165000}},
 ];
 export const samples = ['pay-stub', 'bank-statement', 'tax-return', 'asset-statement'];
 export function sampleDocs(index: number): DocumentRecord[] {
@@ -22,23 +25,46 @@ export function sampleDocs(index: number): DocumentRecord[] {
   const sets = [{monthly}, {cash, debt}, {annual}, {investments, collateral}];
   return [0, 1, 3].map(i => ({
     id: samples[i], name: samples[i] + '.pdf', type: types[i],
-    status: 'Simulated', values: sets[i], href: '/samples/' + index + '-' + samples[i] + '.pdf',
+    status: 'Received and Verified', values: sets[i], href: '/samples/' + index + '-' + samples[i] + '.pdf',
   }));
 }
-export const defaults = { rate: 7.25, years: 10, dti: 40, ltv: 80 };
+export function documentStatus(docs: DocumentRecord[], type: DocType): DocumentStatus {
+  const matching = docs.filter(doc => doc.type === type);
+  if (matching.some(doc => doc.status === 'Received and Verified')) return 'Received and Verified';
+  return matching.length ? 'Pending Verification' : 'Missing';
+}
+
+export const requestSubject = 'Additional Documentation Required – Line of Credit Application';
+export function documentRequest(name: string, missing: DocType[]) {
+  return [
+    'Dear ' + name + ',',
+    'Thank you for applying for a secured line of credit. To continue our review, please upload the following outstanding documents through your secure document portal:',
+    missing.map(type => '• ' + type).join('\n'),
+    'Please contact us if you have questions or need help submitting these documents.',
+    'Sincerely,\nLoan Operations',
+  ].join('\n\n');
+}
+
+export const defaults = { rate: 7.25, balanceFactor: 1, dti: 40, ltv: 80 };
 export function assess(values: Values, request: number, assumptions: typeof defaults) {
   const income = values.monthly ?? (values.annual === undefined ? undefined : values.annual / 12);
   const debt = values.debt;
   const collateral = values.collateral;
-  const rate = assumptions.rate / 1200;
-  const months = assumptions.years * 12;
-  const factor = rate === 0 ? months : -Math.expm1(-months * Math.log1p(rate)) / rate;
+  const monthlyRate = assumptions.rate / 1200;
+  const qualifyingFactor = Math.max(monthlyRate, assumptions.balanceFactor / 100);
   const dti = income && debt !== undefined ? debt / income * 100 : null;
-  const capacity = dti === null ? null : Math.floor(Math.max(0, income! * assumptions.dti / 100 - debt!) * factor);
-  const amount = capacity === null || collateral === undefined ? null : Math.floor(Math.min(request, capacity, collateral * assumptions.ltv / 100));
-  const payment = amount === null ? null : amount / factor;
-  const coverage = amount && collateral !== undefined ? collateral / amount * 100 : null;
-  return { dti, capacity, amount, payment, coverage, projected: payment !== null && income && debt !== undefined ? (debt + payment) / income * 100 : null };
+  const incomeLimit = income && debt !== undefined
+    ? Math.floor(Math.max(0, income * assumptions.dti / 100 - debt) / qualifyingFactor)
+    : null;
+  const collateralLimit = collateral === undefined ? null : Math.floor(collateral * assumptions.ltv / 100);
+  const capacity = incomeLimit === null || collateralLimit === null ? null : Math.min(incomeLimit, collateralLimit);
+  const limit = capacity === null ? null : Math.min(request, capacity);
+  const monthlyInterest = limit === null ? null : limit * monthlyRate;
+  const qualifyingPayment = limit === null ? null : limit * qualifyingFactor;
+  const projected = qualifyingPayment !== null && income && debt !== undefined
+    ? (debt + qualifyingPayment) / income * 100
+    : null;
+  return { dti, incomeLimit, collateralLimit, capacity, limit, monthlyInterest, qualifyingPayment, projected };
 }
 const patterns: Record<Field, string> = {
   annual: 'annual (?:gross )?income|annual salary|adjusted gross income',
@@ -62,7 +88,7 @@ export function resolveFields(docs: DocumentRecord[], manual: Values, sample: Va
   const values: Values = {};
   const sources: Partial<Record<Field, string>> = {};
   for (const key of Object.keys(fields) as Field[]) {
-    const direct = docs.filter(doc => doc.status === 'Extracted' && doc.values[key] !== undefined);
+    const direct = docs.filter(doc => doc.extraction === 'extracted' && doc.values[key] !== undefined);
     if (manual[key] !== undefined) {
       values[key] = manual[key]; sources[key] = 'Human correction';
     } else if (new Set(direct.map(doc => doc.values[key])).size > 1) {
@@ -70,11 +96,11 @@ export function resolveFields(docs: DocumentRecord[], manual: Values, sample: Va
     } else if (direct.length) {
       values[key] = direct[0].values[key]; sources[key] = direct[0].name;
     } else if (sample[key] !== undefined) {
-      values[key] = sample[key]; sources[key] = 'Simulated profile';
+      values[key] = sample[key]; sources[key] = 'Fictional profile';
     }
   }
-  // Prefer a verified or corrected income figure over simulated data.
-  const priority = (key: Field) => sources[key] === 'Human correction' ? 3 : values[key] === undefined ? 0 : sources[key] === 'Simulated profile' ? 1 : 2;
+  // Prefer extracted or corrected income over fictional profile values.
+  const priority = (key: Field) => sources[key] === 'Human correction' ? 3 : values[key] === undefined ? 0 : sources[key] === 'Fictional profile' ? 1 : 2;
   if (priority('annual') > priority('monthly')) {
     values.monthly = values.annual! / 12; sources.monthly = 'Derived from annual income';
   } else if (priority('monthly') > priority('annual')) {

@@ -1,22 +1,22 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Activity, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Copy, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
-import { applicants, assess, defaults, fields, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
+import { Activity, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Send, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
+import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
 const steps = [
   {title:'Client intake', short:'Intake', description:'Applicant & documents', icon: BriefcaseBusiness},
   {title:'Document processing', short:'Documents', description:'Extract financial data', icon: FileCheck2},
-  {title:'Affordability', short:'Assessment', description:'Evaluate loan capacity', icon: Gauge},
-  {title:'Loan proposal', short:'Proposal', description:'Review estimated terms', icon: Banknote},
+  {title:'Affordability', short:'Assessment', description:'Evaluate credit capacity', icon: Gauge},
+  {title:'Credit proposal', short:'Proposal', description:'Review estimated terms', icon: Banknote},
   {title:'Human review', short:'Review', description:'Record a demo decision', icon: ShieldCheck},
 ];
 const money = (value: number | null | undefined, cents = false) => value == null ? '—' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:cents ? 2 : 0,minimumFractionDigits:cents ? 2 : 0}).format(value);
 const percent = (n: number | null) => n == null ? '—' : n.toFixed(1) + '%';
 const assumptionFields = [
   {id:'rate', label:'Annual interest rate (%)', min:0, max:50, step:0.01},
-  {id:'years', label:'Term (years)', min:1, max:40, step:1},
+  {id:'balanceFactor', label:'Qualifying payment floor (% of balance)', min:0.01, max:100, step:0.01},
   {id:'dti', label:'Maximum total DTI (%)', min:1, max:100, step:1},
   {id:'ltv', label:'Maximum loan-to-value (%)', min:1, max:100, step:1},
 ] as const;
@@ -32,16 +32,28 @@ export default function Home() {
   const [request, setRequest] = useState(applicants[0].request);
   const [status, setStatus] = useState('Pending review');
   const [modal, setModal] = useState<'upload' | 'checklist' | 'settings' | 'email' | 'samples' | 'help' | null>(null);
+  const [recipient, setRecipient] = useState('');
+  const [subject, setSubject] = useState('');
+  const [sent, setSent] = useState(false);
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState('');
   const session = useRef(0);
   const applicant = applicants[index];
   const {values, sources} = resolveFields(docs, manual, applicant?.values ?? {});
-  const missing = required.filter(type => !docs.some(doc => doc.type === type && ['Extracted','Simulated'].includes(doc.status)));
-  const done = required.length - missing.length;
+  const missing = required.filter(type => documentStatus(docs, type) === 'Missing');
+  const unverified = required.filter(type => documentStatus(docs, type) === 'Pending Verification');
+  const done = required.length - missing.length - unverified.length;
   const result = assess(values, request, assumptions);
-  const pending = docs.some(doc => doc.status === 'Processing');
-  const proposalReady = !pending && result.amount !== null && result.amount > 0;
+  const pending = docs.some(doc => doc.extraction === 'processing');
+  const outstanding = [
+    ...missing.map(type => type + ' — Missing'),
+    ...unverified.map(type => type + ' — Pending Verification'),
+    ...(pending ? ['PDF processing is in progress.'] : []),
+    ...(result.limit === null ? ['Complete gross income, monthly liabilities, and collateral value.'] : []),
+    ...(result.limit === 0 ? ['The current inputs support no positive credit limit.'] : []),
+  ];
+  const proposalReady = outstanding.length === 0;
+  const approved = status === 'Approved in demo';
   const resetReview = () => setStatus('Pending review');
   function selectApplicant(next: number) {
     session.current++;
@@ -49,11 +61,11 @@ export default function Home() {
     setRequest(applicants[next]?.request ?? 0);
     setMessage('');
   }
-  async function upload(files: FileList | File[] | null, type = selectedType) {
+  async function upload(files: FileList | File[] | null, type = selectedType, bundledSample = false) {
     if (!files?.length) return;
     const current = session.current;
     const newDocs: DocumentRecord[] = Array.from(files).map(file => ({
-      id: crypto.randomUUID(), name: file.name, type, status:'Processing', values:{},
+      id: crypto.randomUUID(), name: file.name, type, status:'Pending Verification', extraction:'processing', values:{},
     }));
     setDocs(previous => [...previous, ...newDocs]);
     resetReview();
@@ -63,9 +75,15 @@ export default function Home() {
       let update: DocumentRecord;
       try {
         const extracted = await extractPdf(file);
-        update = {...record, ...extracted, status:Object.keys(extracted.values).length ? 'Extracted' : 'Needs review'};
+        const matched = Object.keys(extracted.values).length > 0;
+        update = {
+          ...record,
+          ...extracted,
+          extraction: matched ? 'extracted' : 'failed',
+          status: matched && bundledSample ? 'Received and Verified' : 'Pending Verification',
+        };
       } catch (error) {
-        update = {...record, status:'Needs review', detail:error instanceof Error ? error.message : 'PDF could not be read'};
+        update = {...record, extraction:'failed', detail:error instanceof Error ? error.message : 'PDF could not be read'};
       }
       if (session.current === current) {
         setDocs(previous => previous.map(doc => doc.id === record.id ? update : doc));
@@ -80,14 +98,17 @@ export default function Home() {
       const response = await fetch('/samples/' + Math.max(0,index) + '-' + slug + '.pdf');
       if (!response.ok) throw new Error('Sample PDF unavailable.');
       const file = new File([await response.blob()], slug + '.pdf', {type:'application/pdf'});
-      if (session.current === current) await upload([file], type);
+      if (session.current === current) await upload([file], type, true);
     } catch {
       if (session.current === current) setMessage('Could not load the sample PDF. Try downloading it instead.');
     }
   }
   function openEmail() {
-    setDraft('Subject: Documents needed for your loan application\n\nHi ' + (applicant?.name.split(' ')[0] ?? 'there') + ',\n\nTo continue reviewing your application, please provide the following via your secure document portal:\n\n' + missing.map(type => '• ' + type).join('\n') + '\n\nThank you,\nLoan Operations');
-    setMessage(''); setModal('email');
+    setRecipient(applicant && 'email' in applicant ? applicant.email ?? '' : '');
+    setSubject(requestSubject);
+    setDraft(documentRequest(applicant?.name ?? 'Applicant', missing));
+    setSent(false);
+    setModal('email');
   }
   function changeField(key: Field, input: string) {
     const next = {...manual};
@@ -101,9 +122,12 @@ export default function Home() {
       <div className="panel-head"><div><h2>Document intake</h2><p>Manage supporting documents for this application.</p></div><button className="primary" onClick={() => setModal('upload')}><Upload size={16}/> Upload PDF</button></div>
       <div className="table-wrap"><table><thead><tr><th>Document</th><th>Type</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
         {docs.map(doc => <tr key={doc.id}>
-          <td><div className="file"><span className="file-icon"><FileText size={17}/></span><div><strong>{doc.name}</strong><small title={doc.detail}>{doc.detail ?? 'Fictional sample PDF'}</small></div></div></td>
-          <td>{doc.type}</td><td><span className={'pill ' + (doc.status === 'Needs review' ? 'warn' : doc.status === 'Processing' ? 'neutral' : 'good')}>{doc.status}</span></td>
-          <td><div className="row-actions">{doc.href && <a className="icon-button" href={doc.href} download aria-label={'Download ' + doc.name}><Download size={15}/></a>}<button className="icon-button" aria-label={'Remove ' + doc.name} onClick={() => {setDocs(docs.filter(item => item.id !== doc.id)); resetReview();}}><X size={15}/></button></div></td>
+          <td><div className="file"><span className="file-icon"><FileText size={17}/></span><div><strong>{doc.name}</strong><small title={doc.detail}>{doc.detail ?? (doc.extraction === 'processing' ? 'Extracting PDF text…' : 'Fictional sample data')}</small></div></div></td>
+          <td>{doc.type}</td><td><span className={'pill ' + (doc.status === 'Pending Verification' ? 'warn' : 'good')}>{doc.status}</span></td>
+          <td><div className="row-actions">{doc.status === 'Pending Verification' && doc.extraction !== 'processing' && <button className="text-button" onClick={() => {
+            setDocs(previous => previous.map(item => item.id === doc.id ? {...item, status:'Received and Verified'} : item));
+            resetReview();
+          }}>Mark verified in demo</button>}{doc.href && <a className="icon-button" href={doc.href} download aria-label={'Download ' + doc.name}><Download size={15}/></a>}<button className="icon-button" aria-label={'Remove ' + doc.name} onClick={() => {setDocs(previous => previous.filter(item => item.id !== doc.id)); resetReview();}}><X size={15}/></button></div></td>
         </tr>)}
         {!docs.length && <tr><td colSpan={4} className="empty">Upload a fictional PDF or choose a sample applicant.</td></tr>}
       </tbody></table></div>
@@ -114,8 +138,12 @@ export default function Home() {
     return <section className="panel checklist">
       <div className="panel-head"><div><h2>Document checklist</h2><p>{done} of {required.length} requirements met</p></div><button className="icon-button framed" aria-label="Configure checklist" onClick={() => setModal('checklist')}><Settings2 size={17}/></button></div>
       <progress aria-label="Required documents received" value={done} max={required.length || 1}/>
-      <div className="check-items">{required.map(type => <div key={type}><span className={'check-icon ' + (missing.includes(type) ? 'warn' : 'good')}>{missing.includes(type) ? <TriangleAlert size={14}/> : <Check size={15}/>}</span><span>{type}</span><small className={missing.includes(type) ? 'warning-text' : ''}>{missing.includes(type) ? 'Missing' : 'Received'}</small></div>)}{!required.length && <p>No documents required.</p>}</div>
-      <button className="secondary email-button" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Draft document request</button>
+      <div className="check-items">{required.map(type => {
+        const state = documentStatus(docs, type);
+        const verified = state === 'Received and Verified';
+        return <div key={type}><span className={'check-icon ' + (verified ? 'good' : 'warn')}>{verified ? <Check size={15}/> : <TriangleAlert size={14}/>}</span><span>{type}</span><small className={verified ? '' : 'warning-text'}>{state}</small></div>;
+      })}{!required.length && <p>No documents required.</p>}</div>
+      <button className="secondary email-button" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
     </section>;
   }
   function finances() {
@@ -132,19 +160,62 @@ export default function Home() {
   function metrics() {
     const items = [
       ['Current debt-to-income', percent(result.dti), 'Monthly debt ÷ gross monthly income'],
-      ['Borrowing capacity', money(result.capacity), 'Principal supported by the DTI limit'],
-      ['Collateral coverage', percent(result.coverage), 'Collateral value ÷ proposed principal'],
+      ['Income-based limit', money(result.incomeLimit), 'DTI headroom ÷ qualifying payment factor'],
+      ['Collateral-based limit', money(result.collateralLimit), 'Collateral value × maximum loan-to-value'],
     ];
     return <div className="metrics">{items.map(([title,value,detail]) => <section className="panel metric" key={title}><span>{title}</span><strong>{value}</strong><small>{detail}</small></section>)}</div>;
   }
   function proposal() {
     return <section className="panel">
-      <div className="panel-head"><div><h2>Illustrative loan proposal</h2><p>Principal is capped by the request, borrowing capacity, and collateral × maximum loan-to-value.</p></div><span className="pill neutral">Illustrative</span></div>
+      <div className="panel-head"><div><h2>Secured Line of Credit proposal</h2><p>The proposed limit is capped by the request and the lower of income-based and collateral-based capacity.</p></div><span className="pill neutral">Illustrative</span></div>
       <div className="financial-grid terms">
-        {[['Requested amount', money(request)],['Proposed amount',money(result.amount)],['Interest assumption',assumptions.rate + '%'],['Loan term',assumptions.years + ' years'],['Monthly payment',money(result.payment,true)],['Projected total DTI',percent(result.projected)]].map(([label,value]) => <div className="financial" key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        {[
+          ['Requested credit limit', money(request)],
+          [approved ? 'Human-approved credit limit (demo)' : 'Proposed credit limit', money(result.limit)],
+          ['Collateral value', money(values.collateral)],
+          ['Annual interest rate', assumptions.rate + '%'],
+          ['Borrowing capacity', money(result.capacity)],
+          ['Monthly interest at full draw', money(result.monthlyInterest, true)],
+          ['Qualifying monthly payment at full draw', money(result.qualifyingPayment, true)],
+          ['Projected total DTI at full draw', percent(result.projected)],
+        ].map(([label,value]) => <div className="financial" key={label}><span>{label}</span><strong>{value}</strong></div>)}
       </div>
-      <div className="panel-foot"><p>{pending ? 'PDF processing is in progress.' : result.amount === null ? 'Enter income, monthly debt, and collateral to calculate terms.' : result.amount === 0 ? 'Current inputs support no positive proposal.' : 'Fixed-rate principal and interest. Fees, taxes, and insurance are excluded.'}</p><button className="secondary" onClick={() => setModal('settings')}><Settings2 size={16}/> Edit assumptions</button></div>
+      <div className="panel-foot"><p>Interest accrues on the outstanding balance. Monthly interest is illustrated as balance × annual rate ÷ 12. Fees are excluded.</p><button className="secondary" onClick={() => setModal('settings')}><Settings2 size={16}/> Edit assumptions</button></div>
     </section>;
+  }
+  function humanReview() {
+    return <div className="review-grid" aria-label="Human review summary">
+      <section className="panel checklist">
+        <div className="panel-head"><h2>Document Verification Summary</h2></div>
+        <dl className="review-values">
+          <div><dt>Required documents</dt><dd>{required.length}</dd></div>
+          <div><dt>Received and Verified</dt><dd>{done}</dd></div>
+          <div><dt>Missing or pending</dt><dd>{missing.length + unverified.length}</dd></div>
+        </dl>
+        <progress aria-label="Illustrative verification completion" value={required.length ? done : 1} max={required.length || 1}/>
+        <p className="review-completion">{required.length ? done + ' of ' + required.length + ' complete' : 'No documents required'}</p>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>Credit Decision Summary</h2><span className={'pill ' + (approved ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{status}</span></div>
+        <dl className="review-values">
+          <div><dt>Requested credit limit</dt><dd>{money(request)}</dd></div>
+          <div><dt>{approved ? 'Human-approved credit limit (demo)' : 'Proposed credit limit'}</dt><dd>{money(result.limit)}</dd></div>
+          <div><dt>Collateral value</dt><dd>{money(values.collateral)}</dd></div>
+          <div><dt>Annual interest rate</dt><dd>{assumptions.rate}%</dd></div>
+        </dl>
+      </section>
+      <section className="panel review-outstanding">
+        <div className="panel-head"><div><h2>Outstanding Requirements</h2>
+          <p>{outstanding.length ? 'Resolve these items before approving the proposal.' : approved ? 'All requirements are complete. Approval recorded in the demo.' : 'All requirements are complete. The proposal is ready for a human decision.'}</p>
+        </div></div>
+        {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
+        <div className="panel-foot review-actions">
+          <button className="secondary" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
+          <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
+          <button className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve proposal</button>
+        </div>
+      </section>
+    </div>;
   }
   return <div className="shell">
     <aside className="sidebar">
@@ -158,13 +229,13 @@ export default function Home() {
       <div className="sidebar-foot"><div className="demo-info"><ShieldCheck size={19}/><div><strong>Portfolio sandbox</strong><small>Fictional data only</small></div></div></div>
     </aside>
     <main>
-      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>Loan processing</strong></div><span className="demo-badge"><span/> Demo environment</span></header>
+      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><span className="demo-badge"><span/> Demo environment</span></header>
       <div className="workspace">
         <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>From document intake to human underwriting in one workspace.</p></div><button className="secondary" onClick={() => {selectApplicant(-1); setStep(0);}}><Plus size={17}/> New application</button></div>
         <section className="hero" aria-label="Active application">
           <div className="hero-content">
             <div className="hero-kicker"><span/> ACTIVE APPLICATION</div>
-            <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {applicant?.purpose ?? 'Sample PDF intake'}</p></div></div>
+            <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && 'email' in applicant && <p>{applicant.email}</p>}</div></div>
           </div>
           <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}<option value={-1}>Custom PDF intake</option></select><ChevronDown size={16}/></div></div>
         </section>
@@ -178,30 +249,43 @@ export default function Home() {
         {step === 1 && <div className="stack">{finances()}<div className="main-grid">{documents()}{checklist()}</div></div>}
         {step === 2 && <div className="stack">{metrics()}{proposal()}</div>}
         {step === 3 && <div className="stack">{proposal()}{checklist()}</div>}
-        {step === 4 && <div className="stack">{proposal()}{finances()}<section className="panel"><div className="panel-head"><div><h2>Underwriter decision</h2><p>{missing.length ? 'Review outstanding requirements before recording a decision.' : 'Review proposal terms and financial inputs before recording a decision.'}</p></div><span className={'pill ' + (status === 'Approved in demo' ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{status}</span></div><div className="panel-foot"><button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button><button className="primary" disabled={!proposalReady || missing.length > 0} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve proposal</button></div></section></div>}
-        <div className="bottom"><span><ShieldCheck size={16}/> Fictional data and illustrative calculations only.</span>{step > 0 && step < 4 && <button className="primary" onClick={nextStep}>Continue to {steps[step+1].short.toLowerCase()}</button>}</div>
+        {step === 4 && humanReview()}
+        <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span>{step > 0 && step < 4 && <button className="primary" onClick={nextStep}>Continue to {steps[step+1].short.toLowerCase()}</button>}</div>
       </div>
     </main>
     {modal && <dialog
       ref={dialog => { if (dialog && !dialog.open) dialog.showModal(); }}
       aria-labelledby="dialog-title"
-      className="modal"
+      className={'modal' + (modal === 'email' ? ' compose' : '')}
       onCancel={event => {event.preventDefault(); setModal(null);}}
       onClick={event => {if (event.target === event.currentTarget) setModal(null);}}
     >
-        <div className="modal-heading"><h2 id="dialog-title">{{upload:'Upload sample PDFs',checklist:'Configure checklist',settings:'Loan assumptions',email:'Document request draft',samples:'Fictional sample PDFs',help:'About this demo'}[modal]}</h2><button autoFocus className="icon-button framed" aria-label="Close dialog" onClick={() => setModal(null)}><X size={19}/></button></div>
+        <div className="modal-heading"><h2 id="dialog-title">{{upload:'Upload sample PDFs',checklist:'Configure checklist',settings:'Line of credit assumptions',email:'New message',samples:'Fictional sample PDFs',help:'About this demo'}[modal]}</h2><button autoFocus className="icon-button framed" aria-label={modal === 'email' ? 'Close message' : 'Close dialog'} onClick={() => setModal(null)}><X size={19}/></button></div>
         {modal === 'upload' && <div className="modal-body"><p>Choose a document type, then select fictional PDFs. Files are processed in this browser. Maximum 10 MB and 50 pages per PDF.</p><label>Document type<select value={selectedType} onChange={e => setSelectedType(e.target.value as DocType)}>{types.map(type => <option key={type}>{type}</option>)}</select></label><label className="upload-zone"><Upload size={22}/> Select PDFs<input type="file" multiple accept="application/pdf,.pdf" onChange={e => void upload(e.target.files)}/></label></div>}
         {modal === 'checklist' && <div className="modal-body"><p>Select the document types this application requires.</p>{types.map(type => <label className="checkbox" key={type}><input type="checkbox" checked={required.includes(type)} onChange={e => {setRequired(e.target.checked ? types.filter(t => required.includes(t) || t === type) : required.filter(item => item !== type)); resetReview();}}/>{type}</label>)}</div>}
         {modal === 'settings' && <form className="modal-body" onSubmit={event => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          setAssumptions({rate:Number(form.get('rate')), years:Number(form.get('years')), dti:Number(form.get('dti')), ltv:Number(form.get('ltv'))});
+          setAssumptions({rate:Number(form.get('rate')), balanceFactor:Number(form.get('balanceFactor')), dti:Number(form.get('dti')), ltv:Number(form.get('ltv'))});
           setRequest(Number(form.get('request')));
           resetReview(); setModal(null);
-        }}><p>Payment capacity equals gross monthly income × maximum DTI minus existing monthly debt. The model converts that payment to principal using a fixed-rate amortization schedule.</p><label>Requested amount (USD)<input type="number" name="request" min="0" max="1000000000" step="1" required defaultValue={request}/></label>{assumptionFields.map(field => <label key={field.id}>{field.label}<input type="number" name={field.id} min={field.min} max={field.max} step={field.step} required defaultValue={assumptions[field.id]}/></label>)}<button className="primary" type="submit">Apply assumptions</button></form>}
-        {modal === 'email' && <div className="modal-body"><p>Edit or copy this draft. The demo has no email delivery integration.</p><textarea rows={11} value={draft} onChange={e => setDraft(e.target.value)} aria-label="Draft email"/><button className="primary" onClick={async () => {try {await navigator.clipboard.writeText(draft); setMessage('Draft copied.');} catch {setMessage('Select and copy the text manually.');}}}><Copy size={16}/> Copy draft</button><span aria-live="polite">{message}</span></div>}
+        }}><p>The model divides monthly DTI headroom by the greater of the monthly interest rate or the qualifying payment floor, assuming the full line is drawn.</p><label>Requested credit limit (USD)<input type="number" name="request" min="0" max="1000000000" step="1" required defaultValue={request}/></label>{assumptionFields.map(field => <label key={field.id}>{field.label}<input type="number" name={field.id} min={field.min} max={field.max} step={field.step} required defaultValue={assumptions[field.id]}/></label>)}<button className="primary" type="submit">Apply assumptions</button></form>}
+        {modal === 'email' && <form className="compose-form" onSubmit={event => {
+          event.preventDefault();
+          setSent(true);
+        }}>
+          <div className="compose-toolbar">
+            <button className="primary compose-send" type="submit" disabled={sent}><Send size={16}/> Send</button>
+            <button className="secondary" type="button" onClick={() => setModal(null)}>Close</button>
+            <small>Demo email · simulated send only</small>
+          </div>
+          <label className="compose-field"><span>To</span><input type="email" required value={recipient} readOnly={sent} onChange={event => setRecipient(event.target.value)}/></label>
+          <label className="compose-field"><span>Subject</span><input required value={subject} readOnly={sent} onChange={event => setSubject(event.target.value)}/></label>
+          <textarea rows={12} value={draft} readOnly={sent} required onChange={event => setDraft(event.target.value)} aria-label="Message body"/>
+          <div className="compose-status" role="status">{sent && <><Check size={17}/> Simulated send complete. No email was sent.</>}</div>
+        </form>}
         {modal === 'samples' && <div className="modal-body"><p>Process a fictional PDF in this browser or download it to test the upload flow.</p>{types.map((type, i) => <div className="sample-row" key={type}><span><FileText size={17}/>{type}</span><button className="secondary" onClick={() => void processSample(type)} disabled={message.startsWith('Loading')}>Process PDF</button><a className="icon-button framed" href={'/samples/' + Math.max(0,index) + '-' + samples[i] + '.pdf'} download aria-label={'Download ' + type}><Download size={16}/></a></div>)}<span aria-live="polite">{message}</span></div>}
-        {modal === 'help' && <div className="modal-body"><p>This portfolio demo models document intake, financial analysis, and human review with fictional applicants.</p><p><Sparkles size={17}/> PDF.js reads selectable text. Rules match supported labels and surface source filenames. Extraction has no calibrated confidence score.</p><p><ClipboardCheck size={17}/> Decisions and email drafts remain in this browser session. Refresh to reset the demo.</p><p><ListChecks size={17}/> All terms are illustrative. External banking data is simulated.</p></div>}
+        {modal === 'help' && <div className="modal-body"><p>This portfolio demo models document intake, financial analysis, and human review with fictional applicants.</p><p><Sparkles size={17}/> PDF.js reads selectable text. Rules match supported labels and surface source filenames. Extraction has no calibrated confidence score.</p><p><ClipboardCheck size={17}/> Decisions and simulated email sends remain in this browser session. Refresh to reset the demo.</p><p><ListChecks size={17}/> Verification statuses are illustrative. Successful PDF extraction reads labeled text and does not establish document authenticity.</p></div>}
       </dialog>}
   </div>;
 }
