@@ -1,11 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDown, ArrowRight, BadgeCheck, Banknote, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
-import { intakeTabs, nextWorkflowAction, type IntakeTab, type ReviewDecision } from '../lib/workflow';
+import { intakeTabs, nextWorkflowAction, retainOutstandingRequests, type IntakeTab, type ReviewDecision } from '../lib/workflow';
 import { AgentEvaluation } from './agent-evaluation';
 import { DemoTour, tourSessionKey, type TourStep } from './demo-tour';
 import { WelcomeModal } from './welcome-modal';
@@ -36,6 +36,7 @@ function createApplication(index: number) {
     request: applicants[index]?.request ?? 0,
     proposalReviewed: index >= 0,
     message: '',
+    requestedDocuments: [] as DocType[],
   };
 }
 
@@ -49,7 +50,7 @@ export default function Home() {
     Object.fromEntries(applicants.map((applicant, index) => [applicant.id, createApplication(index)])),
   );
   const activeApplication = useRef(applicationId);
-  const {docs, required, manual, assumptions, request, proposalReviewed, status, rerunNotice, message} = applications[applicationId];
+  const {docs, required, manual, assumptions, request, proposalReviewed, status, rerunNotice, message, requestedDocuments} = applications[applicationId];
   const index = applicants.findIndex(applicant => applicant.id === applicationId);
   const [view, setView] = useState<'client-intake' | 'human-review'>('client-intake');
   const [intakeTab, setIntakeTab] = useState<IntakeTab | 'client-intake'>('client-intake');
@@ -57,11 +58,18 @@ export default function Home() {
   const [modal, setModal] = useState<'upload' | 'checklist' | 'settings' | 'email' | 'samples' | 'help' | null>(null);
   const [recipient, setRecipient] = useState('');
   const [subject, setSubject] = useState('');
-  const [sent, setSent] = useState(false);
+  const [emailDocuments, setEmailDocuments] = useState<DocType[]>([]);
+  const [sendConfirmation, setSendConfirmation] = useState<{applicationId: string} | null>(null);
+  useEffect(() => {
+    if (!sendConfirmation) return;
+    const timeout = window.setTimeout(() => setSendConfirmation(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [sendConfirmation]);
   const [draft, setDraft] = useState('');
   const applicant = applicants[index];
   const {values, sources} = resolveFields(docs, manual, applicant?.values ?? {});
   const missing = required.filter(type => documentStatus(docs, type) === 'Missing');
+  const unrequested = missing.filter(type => !requestedDocuments.includes(type));
   const unverified = required.filter(type => documentStatus(docs, type) === 'Pending Verification');
   const received = required.filter(type => documentStatus(docs, type) === 'Received and Verified');
   const done = received.length;
@@ -82,7 +90,7 @@ export default function Home() {
   const decisionRecorded = status !== 'Pending review';
   const reviewStatus = decisionRecorded ? status : proposalReady ? 'Ready for human review' : 'Pending review';
   const nextAction = nextWorkflowAction({
-    processing: pending, missing: missing.length, unverified: unverified.length, limit: result.limit, decision: status, proposalNeedsReview: !proposalReviewed && !(view === 'client-intake' && intakeTab === 'credit-proposal'),
+    processing: pending, missing: missing.length, requestSent: unrequested.length === 0, unverified: unverified.length, limit: result.limit, decision: status, proposalNeedsReview: !proposalReviewed && !(view === 'client-intake' && intakeTab === 'credit-proposal'),
   });
   function openIntake(tab: IntakeTab | 'client-intake') {
     setView('client-intake');
@@ -97,7 +105,10 @@ export default function Home() {
   }
   const overview = view === 'client-intake' && intakeTab === 'client-intake';
   const applicantName = applicant?.name ?? 'This application';
-  const summary = decisionRecorded ? applicantName + (approved ? ' was approved in this demo.' : ' was declined in this demo.')
+  const requestSent = nextAction.target === 'request-sent';
+  const summary = requestSent
+    ? 'The agent identified missing documentation and a request has been sent to the client. Next: Awaiting outstanding documents.'
+    : decisionRecorded ? applicantName + (approved ? ' was approved in this demo.' : ' was declined in this demo.')
     : pending ? 'I’m processing documents for ' + (applicant?.name ?? 'this application') + '.'
     : missing.length ? (docs.length ? 'I reviewed the documents on file for ' + (applicant?.name ?? 'this application') + '. ' : '') + 'Still needed: ' + missing.join(', ').toLowerCase() + '.'
     : unverified.length ? 'I’ve received the documents for ' + (applicant?.name ?? 'this application') + '. Some still need review.'
@@ -106,6 +117,7 @@ export default function Home() {
     : 'The documents are on file and my illustrative credit assessment for ' + (applicant?.name ?? 'this application') + ' is ready.';
 
   function takeNextAction() {
+    if (nextAction.target === 'request-sent') return;
     if (nextAction.target === 'request-documents') openEmail();
     else if (nextAction.target === 'human-review') {
       if (view === 'human-review') document.getElementById('underwriting-decision')?.focus();
@@ -119,14 +131,20 @@ export default function Home() {
     }
   }
   function actionButton() {
-    return <button id="guided-action" data-tour-highlight={tour === 1 || tourTarget === 'guided-action' ? true : undefined} className="primary guided-action" onClick={takeNextAction}>
-      {view === 'human-review' && nextAction.label === 'Go to Human Review' ? 'Go to Underwriting Decision' : nextAction.label}<ArrowRight size={18} aria-hidden="true"/>
+    return <button id="guided-action" data-tour-highlight={tour === 1 || tourTarget === 'guided-action' ? true : undefined} className={'primary guided-action' + (requestSent ? ' request-sent' : '')} disabled={requestSent} onClick={takeNextAction}>
+      {requestSent && <Check size={18} aria-hidden="true"/>}
+      {view === 'human-review' && nextAction.label === 'Go to Human Review' ? 'Go to Underwriting Decision' : nextAction.label}{!requestSent && <ArrowRight size={18} aria-hidden="true"/>}
     </button>;
   }
   function updateApplication(change: Partial<Application> | ((current: Application) => Partial<Application>)) {
     setApplications(previous => {
       const current = previous[applicationId];
-      return {...previous, [applicationId]: {...current, ...(typeof change === 'function' ? change(current) : change)}};
+      const updated = {...current, ...(typeof change === 'function' ? change(current) : change)};
+      if (updated.docs !== current.docs || updated.required !== current.required) {
+        updated.requestedDocuments = retainOutstandingRequests(updated.requestedDocuments,
+          updated.required.filter(type => documentStatus(updated.docs, type) === 'Missing'));
+      }
+      return {...previous, [applicationId]: updated};
     });
   }
 
@@ -210,12 +228,21 @@ export default function Home() {
     }
   }
   function openEmail() {
+    if (!unrequested.length) return;
     setRecipient(applicant?.email ?? '');
     setSubject(requestSubject);
-    setDraft(documentRequest(applicant?.name ?? 'Applicant', missing));
-    setSent(false);
+    setDraft(documentRequest(applicant?.name ?? 'Applicant', unrequested));
+    setEmailDocuments(unrequested);
     setModal('email');
   }
+  function sendDocumentRequest() {
+    const requested = emailDocuments.filter(type => unrequested.includes(type));
+    setModal(null);
+    if (!requested.length) return;
+    updateApplication(current => ({requestedDocuments:[...new Set([...current.requestedDocuments, ...requested])]}));
+    setSendConfirmation({applicationId});
+  }
+
   function changeField(key: Field, input: string) {
     const next = {...manual};
     if (input === '') delete next[key];
@@ -247,7 +274,7 @@ export default function Home() {
         const verified = state === 'Received and Verified';
         return <div key={type}><span className={'check-icon ' + (verified ? 'good' : 'warn')}>{verified ? <Check size={15}/> : <TriangleAlert size={14}/>}</span><span>{type}</span><small className={verified ? '' : 'warning-text'}>{state}</small></div>;
       })}{!required.length && <p>No documents required.</p>}</div>
-      {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary email-button" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
+      {unrequested.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary email-button" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
     </section>;
   }
   function finances() {
@@ -314,7 +341,7 @@ export default function Home() {
         </div></div>
         {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
         <div className="panel-foot review-actions">
-          {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
+          {unrequested.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
           <button className="secondary" onClick={() => updateApplication({status:'Rejected in demo'})}>Reject proposal</button>
           <button id="approve-loan" data-tour-highlight={tourReviewing && tourTarget === 'approve-loan' || undefined} className="primary" disabled={!proposalReady || approved} onClick={() => updateApplication({status:'Approved in demo'})}><BadgeCheck size={17}/> Approve Loan</button>
         </div>
@@ -402,7 +429,7 @@ export default function Home() {
                 <p className="overview-disclaimer">Verification statuses are illustrative. PDF extraction does not verify authenticity.</p>
               </section>
               <section className="panel recommended-action" aria-labelledby="recommended-heading">
-                <div><h2 id="recommended-heading">Recommended Next Action</h2><p>{nextAction.detail}</p></div>
+                <div><h2 id="recommended-heading">Recommended Next Action</h2>{!requestSent && <p>{nextAction.detail}</p>}</div>
                 {actionButton()}
               </section>
             </>}
@@ -420,6 +447,12 @@ export default function Home() {
         {!overview && <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>}
       </div>
     </main>
+    <div role="status" className="request-notice">
+      {sendConfirmation?.applicationId === applicationId && <div className="request-notice-content">
+        <Check size={18} aria-hidden="true"/>
+        <div><strong>Document request sent successfully.</strong><small>Simulated send · No email was sent.</small></div>
+      </div>}
+    </div>
     <WelcomeModal onExplore={offerTour}/>
     {tour !== null && !modal && <DemoTour step={tour} targetId={tourTarget} reviewing={tourReviewing} readyForReview={proposalReady}
       onNavigate={goToTourStep} onExit={finishTour}/>}
@@ -444,17 +477,16 @@ export default function Home() {
         }}><p>The model divides monthly DTI headroom by the greater of the monthly interest rate or the qualifying payment floor, assuming the full line is drawn.</p><label>Requested credit limit (USD)<input type="number" name="request" min="0" max="1000000000" step="1" required defaultValue={request}/></label>{assumptionFields.map(field => <label key={field.id}>{field.label}<input type="number" name={field.id} min={field.min} max={field.max} step={field.step} required defaultValue={assumptions[field.id]}/></label>)}<button className="primary" type="submit">Apply assumptions</button></form>}
         {modal === 'email' && <form className="compose-form" onSubmit={event => {
           event.preventDefault();
-          setSent(true);
+          sendDocumentRequest();
         }}>
           <div className="compose-toolbar">
-            <button className="primary compose-send" type="submit" disabled={sent}><Send size={16}/> Send</button>
+            <button className="primary compose-send" type="submit"><Send size={16}/> Send</button>
             <button className="secondary" type="button" onClick={() => setModal(null)}>Close</button>
             <small>Demo email · simulated send only</small>
           </div>
-          <label className="compose-field"><span>To</span><input type="email" required value={recipient} readOnly={sent} onChange={event => setRecipient(event.target.value)}/></label>
-          <label className="compose-field"><span>Subject</span><input required value={subject} readOnly={sent} onChange={event => setSubject(event.target.value)}/></label>
-          <textarea rows={12} value={draft} readOnly={sent} required onChange={event => setDraft(event.target.value)} aria-label="Message body"/>
-          <div className="compose-status" role="status">{sent && <><Check size={17}/> Simulated send complete. No email was sent.</>}</div>
+          <label className="compose-field"><span>To</span><input type="email" required value={recipient} onChange={event => setRecipient(event.target.value)}/></label>
+          <label className="compose-field"><span>Subject</span><input required value={subject} onChange={event => setSubject(event.target.value)}/></label>
+          <textarea rows={12} value={draft} required onChange={event => setDraft(event.target.value)} aria-label="Message body"/>
         </form>}
         {modal === 'samples' && <div className="modal-body"><p>Process a fictional PDF in this browser or download it to test the upload flow.</p>{types.map((type, i) => <div className="sample-row" key={type}><span><FileText size={17}/>{type}</span><button className="secondary" onClick={() => void processSample(type)} disabled={message.startsWith('Loading')}>Process PDF</button><a className="icon-button framed" href={'/samples/' + Math.max(0,index) + '-' + samples[i] + '.pdf'} download aria-label={'Download ' + type}><Download size={16}/></a></div>)}<span aria-live="polite">{message}</span></div>}
         {modal === 'help' && <div className="modal-body"><p>This portfolio demo models document intake, financial analysis, and human review with fictional applicants.</p><p><Sparkles size={17}/> PDF.js reads selectable text. Rules match supported labels and surface source filenames. Extraction has no calibrated confidence score.</p><p><ClipboardCheck size={17}/> Decisions and simulated email sends remain in this browser session. Refresh to reset the demo.</p><p><ListChecks size={17}/> Verification statuses are illustrative. Successful PDF extraction reads labeled text and does not establish document authenticity.</p></div>}

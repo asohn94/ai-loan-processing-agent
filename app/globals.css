@@ -137,7 +137,6 @@ progress::-moz-progress-bar {background:#4b9973}
 .compose-field {display:grid;grid-template-columns:70px minmax(0,1fr);align-items:center;gap:8px;margin:0 18px;border-bottom:1px solid var(--line);font-size:14px;font-weight:700}
 .compose .compose-field input {border:0;border-radius:0;padding:12px 8px;font-weight:400}
 .compose .compose-form textarea {display:block;width:calc(100% - 36px);margin:12px 18px 0;line-height:1.55;resize:vertical}
-.compose-status {display:flex;align-items:center;gap:8px;padding:8px 18px 14px;color:var(--green);font-size:14px}
 @media(max-width:740px) {.review-grid {grid-template-columns:1fr}}
 
 .intro p {font-size:15px;max-width:68ch;line-height:1.5}
@@ -240,3 +239,12 @@ body:has(.welcome-modal[open]) {overflow:hidden}
 }
 .demo-tour-meta {display:flex;align-items:center;gap:4px}
 .demo-tour-meta .icon-button {width:25px;height:25px}
+
+.compose-form {padding-bottom:14px}
+.guided-action.request-sent:disabled,.agent-summary .guided-action.request-sent:disabled {
+  opacity:1;background:#e4f4dd;color:#18563e;border-color:#b9d7b9;cursor:default;
+}
+.request-notice {position:fixed;right:16px;bottom:16px;z-index:25;max-width:calc(100% - 32px);pointer-events:none}
+.request-notice-content {display:flex;align-items:flex-start;gap:9px;padding:11px 14px;border:1px solid #b6d2bf;border-radius:9px;background:#f0f8f1;color:#18563e;box-shadow:0 5px 18px #173f3326;font-size:14px}
+.request-notice-content svg {flex-shrink:0;margin-top:1px}
+.request-notice-content small {display:block;margin-top:3px;color:var(--muted);font-size:12px}

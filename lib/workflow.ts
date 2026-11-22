@@ -1,3 +1,5 @@
+import type { DocType } from './loan';
+
 export const intakeTabs = [
   { id: 'document-processing', label: 'Document Processing' },
   { id: 'affordability', label: 'Affordability' },
@@ -5,17 +7,25 @@ export const intakeTabs = [
 ] as const;
 
 export type IntakeTab = typeof intakeTabs[number]['id'];
-export type WorkflowTarget = IntakeTab | 'human-review' | 'request-documents';
+export type WorkflowTarget = IntakeTab | 'human-review' | 'request-documents' | 'request-sent';
 export type ReviewDecision = 'Pending review' | 'Approved in demo' | 'Rejected in demo';
 
-export function nextWorkflowAction({ processing, missing, unverified, limit, decision, proposalNeedsReview = false }: {
+export function retainOutstandingRequests(requested: DocType[], missing: DocType[]) {
+  return requested.filter(type => missing.includes(type));
+}
+
+export function nextWorkflowAction({ processing, missing, unverified, limit, decision, proposalNeedsReview = false, requestSent = false }: {
   processing: boolean;
   missing: number;
   unverified: number;
   limit: number | null;
   decision: ReviewDecision;
   proposalNeedsReview?: boolean;
+  requestSent?: boolean;
 }): { target: WorkflowTarget; label: string; detail: string } {
+  if (missing && requestSent) {
+    return { target: 'request-sent', label: 'Request Sent', detail: 'Awaiting outstanding documents.' };
+  }
   if (decision !== 'Pending review') {
     return { target: 'human-review', label: 'Review decision', detail: 'Review the recorded demo decision.' };
   }
