@@ -1,17 +1,13 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Activity, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Send, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
+import { Activity, BadgeCheck,  Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Send, Download,  FileText,  LayoutGrid, ListChecks, Mail, Plus, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
-const steps = [
-  {title:'Client intake', short:'Intake', icon: BriefcaseBusiness},
-  {title:'Document processing', short:'Documents', icon: FileCheck2},
-  {title:'Affordability', short:'Assessment', icon: Gauge},
-  {title:'Credit proposal', short:'Proposal', icon: Banknote},
-  {title:'Human review', short:'Review', icon: ShieldCheck},
-];
+import { intakeTabs, nextWorkflowAction, type IntakeTab, type ReviewDecision } from '../lib/workflow';
+import { AgentEvaluation } from './agent-evaluation';
+
 const money = (value: number | null | undefined, cents = false) => value == null ? '—' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:cents ? 2 : 0,minimumFractionDigits:cents ? 2 : 0}).format(value);
 const percent = (n: number | null) => n == null ? '—' : n.toFixed(1) + '%';
 const assumptionFields = [
@@ -23,14 +19,17 @@ const assumptionFields = [
 
 export default function Home() {
   const [index, setIndex] = useState(0);
-  const [step, setStep] = useState(0);
+  const [view, setView] = useState<'client-intake' | 'human-review'>('client-intake');
+  const [intakeTab, setIntakeTab] = useState<IntakeTab>('document-processing');
+  const [customId, setCustomId] = useState('');
+  const [rerunNotice, setRerunNotice] = useState('');
   const [docs, setDocs] = useState(() => sampleDocs(0));
   const [required, setRequired] = useState<DocType[]>([...types]);
   const [selectedType, setSelectedType] = useState<DocType>('Pay stub');
   const [manual, setManual] = useState<Values>({});
   const [assumptions, setAssumptions] = useState(defaults);
   const [request, setRequest] = useState(applicants[0].request);
-  const [status, setStatus] = useState('Pending review');
+  const [status, setStatus] = useState<ReviewDecision>('Pending review');
   const [modal, setModal] = useState<'upload' | 'checklist' | 'settings' | 'email' | 'samples' | 'help' | null>(null);
   const [recipient, setRecipient] = useState('');
   const [subject, setSubject] = useState('');
@@ -56,23 +55,32 @@ export default function Home() {
   const approved = status === 'Approved in demo';
   const decisionRecorded = status !== 'Pending review';
   const reviewStatus = decisionRecorded ? status : proposalReady ? 'Ready for human review' : 'Pending review';
-  const underwritingAction = 'Human underwriter to verify the findings and approve or reject the proposal.';
-  const nextAction = pending ? 'Wait for PDF processing to finish.'
-    : missing.length ? 'Request outstanding documents before final underwriting.'
-    : unverified.length ? 'Review documents pending verification.'
-    : result.limit === null ? 'Complete the financial information needed for the credit assessment.'
-    : result.limit === 0 ? 'Review the credit request and assessment inputs.'
-    : decisionRecorded ? 'Review the recorded demo decision.'
-    : underwritingAction;
+  const nextAction = nextWorkflowAction({
+    processing: pending, missing: missing.length, unverified: unverified.length, limit: result.limit, decision: status,
+  });
+  function openIntake(tab: IntakeTab) {
+    setView('client-intake');
+    setIntakeTab(tab);
+  }
+  function rerunAssessment() {
+    const assessment = assess(values, request, assumptions);
+    setRerunNotice(assessment.limit === null
+      ? 'Assessment rerun. Financial inputs are still incomplete.'
+      : 'Assessment rerun with current inputs. Illustrative credit limit: ' + money(assessment.limit) + '.');
+  }
   const documentActivity = done === required.length && required.length > 0
     ? 'All required documents are on file'
     : docs.length ? 'Document intake reviewed' : 'Document intake started';
   const assessmentActivity = result.limit === null ? 'assessment awaiting financial inputs'
     : result.limit === 0 ? 'assessment found no positive credit limit'
     : proposalReady ? 'illustrative credit proposal prepared' : 'illustrative credit assessment prepared';
-  const resetReview = () => setStatus('Pending review');
+  function resetReview() {
+    setStatus('Pending review');
+    setRerunNotice('');
+  }
   function selectApplicant(next: number) {
     session.current++;
+    if (next < 0) setCustomId(crypto.randomUUID());
     setIndex(next); setDocs(next < 0 ? [] : sampleDocs(next)); setManual({}); resetReview();
     setRequest(applicants[next]?.request ?? 0);
     setMessage('');
@@ -132,7 +140,6 @@ export default function Home() {
     else next[key] = Number(input);
     setManual(next); resetReview();
   }
-  const nextStep = () => setStep(Math.min(4, step + 1));
   function documents() {
     return <section className="panel documents">
       <div className="panel-head"><div><h2>Document intake</h2><p>Manage supporting documents for this application.</p></div><button className="primary" onClick={() => setModal('upload')}><Upload size={16}/> Upload PDF</button></div>
@@ -147,7 +154,7 @@ export default function Home() {
         </tr>)}
         {!docs.length && <tr><td colSpan={4} className="empty">Upload a fictional PDF or choose a sample applicant.</td></tr>}
       </tbody></table></div>
-      <div className="panel-foot"><button className="text-button" onClick={() => {setMessage(''); setModal('samples');}}><Download size={15}/> Sample PDFs</button>{step === 0 && <button className="secondary" onClick={nextStep}>Review extracted data</button>}</div>
+      <div className="panel-foot"><button className="text-button" onClick={() => {setMessage(''); setModal('samples');}}><Download size={15}/> Sample PDFs</button></div>
     </section>;
   }
   function checklist() {
@@ -225,52 +232,69 @@ export default function Home() {
           <p>{outstanding.length ? 'Resolve these items before approving the proposal.' : 'None'}</p>
         </div></div>
         {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
-        <p className="review-next"><strong>Next action:</strong> {nextAction}</p>
+        <p className="review-next"><strong>Next action:</strong> {nextAction.detail}</p>
         <div className="panel-foot review-actions">
           <button className="secondary" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
           <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
           <button className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve proposal</button>
         </div>
       </section>
+      <AgentEvaluation
+        key={applicant?.id ?? customId}
+        applicantId={applicant?.id ?? customId}
+        evaluating={pending}
+        assessment={{financialValues:values, assumptions, requestedLimit:request, results:result, missingDocuments:missing, pendingDocuments:unverified}}
+      />
     </div>;
   }
   return <div className="shell">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-icon"><Activity size={23}/></div><div><strong>LoanFlow</strong><small>AI PROCESSING AGENT</small></div></div>
-      <nav aria-label="Workflow navigation"><div className="nav-label">WORKSPACE</div>
-        {steps.map(({title,short,icon:Icon},i) => <button key={title} className={step === i ? 'selected' : ''} aria-current={step === i ? 'step' : undefined} onClick={() => setStep(i)}><Icon size={19}/><span className="nav-full">{title}</span><span className="nav-short">{short}</span>{step === i && <span className="nav-indicator"/>}</button>)}
-        <div className="nav-label tools-label">TOOLS</div>
-        <button onClick={() => setModal('settings')}><Settings2 size={19}/><span>Assumptions</span></button>
-        <button onClick={() => setModal('help')}><CircleHelp size={19}/><span>About the demo</span></button>
-      </nav>
-      <div className="sidebar-foot"><div className="demo-info"><ShieldCheck size={19}/><div><strong>Portfolio sandbox</strong><small>Fictional data only</small></div></div></div>
-    </aside>
     <main>
-      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><span className="demo-badge"><span/> Demo environment</span></header>
+      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><button className="text-button" onClick={() => setModal('help')}><CircleHelp size={16}/> About the demo</button></header>
       <div className="workspace">
-        <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>An AI-powered agent that reviews loan documents, assesses credit eligibility, and prepares loan proposals for human approval.</p></div><button className="secondary" onClick={() => {selectApplicant(-1); setStep(0);}}><Plus size={17}/> New application</button></div>
+        <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>An AI-powered agent that reviews loan documents, assesses credit eligibility, and prepares loan proposals for human approval.</p></div></div>
+        <section className="agent-activity" aria-labelledby="activity-heading">
+          <Activity size={18} aria-hidden="true"/>
+          <div>
+            <h2 id="activity-heading">Agent Activity Summary</h2>
+            <p aria-live="polite"><strong>{applicant?.name ?? 'Custom application'}</strong> · {decisionRecorded ? status : <>{documentActivity}{missing.length > 0 ? ` · ${missing.length} missing` : ''} · {assessmentActivity}</>}. <strong>Next:</strong>{' '}
+              <a href={nextAction.target === 'request-documents' ? '#dialog-title' : '#' + nextAction.target} onClick={event => {
+                event.preventDefault();
+                if (nextAction.target === 'request-documents') openEmail();
+                else if (nextAction.target === 'human-review') setView('human-review');
+                else openIntake(nextAction.target);
+              }}>{nextAction.label}</a>
+            </p>
+          </div>
+        </section>
+        <nav className="main-tabs" aria-label="Main navigation">
+          <button aria-current={view === 'client-intake' ? 'page' : undefined} onClick={() => setView('client-intake')}>Client Intake</button>
+          <button aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}>Human Review</button>
+        </nav>
         <section className="hero" aria-label="Active application">
           <div className="hero-content">
             <div className="hero-kicker"><span/> ACTIVE APPLICATION</div>
             <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && <p>{applicant.email}</p>}</div></div>
           </div>
-          <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div></div>
+          {view === 'client-intake' && <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div><button className="hero-new" onClick={() => {selectApplicant(-1); openIntake('document-processing');}}><Plus size={15}/> New application</button></div>}
         </section>
 
-        <section className="agent-activity" aria-labelledby="activity-heading">
-          <Activity size={18} aria-hidden="true"/>
-          <div>
-            <h2 id="activity-heading">Agent Activity Summary</h2>
-            <p>{documentActivity}{missing.length > 0 ? ` · ${missing.length} missing` : ''} · {assessmentActivity}. <strong>Next:</strong> {nextAction}</p>
+        {view === 'client-intake' && <>
+          <nav className="intake-tabs" aria-label="Client Intake subtabs">
+            {intakeTabs.map(tab => <button key={tab.id} aria-current={tab.id === intakeTab ? 'page' : undefined} onClick={() => setIntakeTab(tab.id)}>{tab.label}</button>)}
+          </nav>
+          <div id={intakeTab} className="stack">
+            {intakeTab === 'document-processing' && <><div className="main-grid">{documents()}{checklist()}</div>{finances()}<div className="workflow-continue"><button className="primary" onClick={() => openIntake('affordability')}>Continue to Affordability</button></div></>}
+            {intakeTab === 'affordability' && <>{metrics()}{proposal()}<section className="panel rerun-panel">
+              <div className="panel-head"><div><h2>Rerun assessment</h2><p>Apply the current financial values and assumptions to the same assessment rules.</p></div>
+                <button className="secondary" onClick={rerunAssessment} disabled={pending}>Rerun assessment</button>
+              </div>
+              {rerunNotice && <p className="rerun-notice" role="status">{rerunNotice}</p>}
+            </section><div className="workflow-continue"><button className="primary" onClick={() => openIntake('credit-proposal')}>Continue to Credit Proposal</button></div></>}
+            {intakeTab === 'credit-proposal' && <>{proposal()}{checklist()}<div className="workflow-continue"><button className="primary" onClick={() => setView('human-review')}>Continue to Human Review</button></div></>}
           </div>
-        </section>
-
-        {step === 0 && <div className="main-grid">{documents()}{checklist()}</div>}
-        {step === 1 && <div className="stack">{finances()}<div className="main-grid">{documents()}{checklist()}</div></div>}
-        {step === 2 && <div className="stack">{metrics()}{proposal()}</div>}
-        {step === 3 && <div className="stack">{proposal()}{checklist()}</div>}
-        {step === 4 && humanReview()}
-        <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span>{step > 0 && step < 4 && <button className="primary" onClick={nextStep}>Continue to {steps[step+1].short.toLowerCase()}</button>}</div>
+        </>}
+        {view === 'human-review' && <div id="human-review">{humanReview()}</div>}
+        <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>
       </div>
     </main>
     {modal && <dialog

@@ -39,3 +39,9 @@ The build exports a static site to `out/`. The package install step copies the m
 ## Deploy to Vercel
 
 Import this repository as a Vercel project, choose the Next.js framework preset, and use `npm run build`. No environment variables are required. After deployment, verify that the production URL opens without authentication and that the sample PDF extracts successfully. Encode that production URL in the resume QR code.
+
+## Human evaluation
+
+Human Review includes applicant-specific Agent Evaluation. Thumbs up records an acceptance; thumbs down requires a comment and stores a selected improvement area. The history and assessment snapshots stay in local browser storage and survive refresh on the same browser profile. Use fictional data only. The demo has no backend or shared feedback dashboard.
+
+Document Processing and Affordability let reviewers correct inputs and rerun the same rules. Feedback does not modify those rules or underwriting decisions. A real improvement workflow would require authenticated reviewer access, a protected feedback store, review and annotation, an offline evaluation dataset, and a gated release process for changes.
