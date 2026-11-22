@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { assess, applicants, defaults, documentStatus, sampleDocs, types } from '../lib/loan';
-import { intakeTabs, nextWorkflowAction, type ReviewDecision } from '../lib/workflow';
+import { intakeTabs, nextWorkflowAction, retainOutstandingRequests, type ReviewDecision } from '../lib/workflow';
 
 test('orders the Client Intake subtabs in origination sequence', () => {
   assert.deepEqual(intakeTabs.map(tab => tab.id), ['document-processing', 'affordability', 'credit-proposal']);
@@ -27,4 +27,15 @@ test('routes each applicant and workflow state to its next action', () => {
   for (const decision of ['Approved in demo', 'Rejected in demo'] as const) {
     assert.equal(nextWorkflowAction({...base, decision}).label, 'Review decision');
   }
+});
+
+test('holds a sent request only for the documents still missing in that cycle', () => {
+  const base = {processing:false, missing:2, unverified:0, limit:85000, decision:'Pending review'} as const;
+  assert.equal(nextWorkflowAction({...base, requestSent:true}).label, 'Request Sent');
+  assert.equal(nextWorkflowAction({...base, missing:0, requestSent:true}).label, 'Go to Human Review');
+  const outstanding = retainOutstandingRequests(['Tax return', 'Pay stub'], ['Pay stub']);
+  assert.deepEqual(outstanding, ['Pay stub']);
+  const nextMissing = ['Tax return', 'Pay stub'] as const;
+  const requestSent = nextMissing.every(type => outstanding.includes(type));
+  assert.equal(nextWorkflowAction({...base, requestSent}).label, 'Request Missing Documents');
 });
