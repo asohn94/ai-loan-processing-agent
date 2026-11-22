@@ -24,28 +24,41 @@ const assumptionFields = [
   {id:'ltv', label:'Maximum loan-to-value (%)', min:1, max:100, step:1},
 ] as const;
 
+const reviewReset = {status: 'Pending review' as ReviewDecision, proposalReviewed: false, rerunNotice:''};
+
+function createApplication(index: number) {
+  return {
+    ...reviewReset,
+    docs: index < 0 ? [] : sampleDocs(index),
+    required: [...types] as DocType[],
+    manual: {} as Values,
+    assumptions: defaults,
+    request: applicants[index]?.request ?? 0,
+    proposalReviewed: index >= 0,
+    message: '',
+  };
+}
+
+type Application = ReturnType<typeof createApplication>;
+
 export default function Home() {
   const [tour, setTour] = useState<TourStep | null>(null);
-  const [index, setIndex] = useState(0);
+  const johnId = applicants[0].id;
+  const [applicationId, setApplicationId] = useState(johnId);
+  const [applications, setApplications] = useState<Record<string, Application>>(() =>
+    Object.fromEntries(applicants.map((applicant, index) => [applicant.id, createApplication(index)])),
+  );
+  const activeApplication = useRef(applicationId);
+  const {docs, required, manual, assumptions, request, proposalReviewed, status, rerunNotice, message} = applications[applicationId];
+  const index = applicants.findIndex(applicant => applicant.id === applicationId);
   const [view, setView] = useState<'client-intake' | 'human-review'>('client-intake');
   const [intakeTab, setIntakeTab] = useState<IntakeTab | 'client-intake'>('client-intake');
-  const [customId, setCustomId] = useState('');
-  const [rerunNotice, setRerunNotice] = useState('');
-  const [docs, setDocs] = useState(() => sampleDocs(0));
-  const [required, setRequired] = useState<DocType[]>([...types]);
   const [selectedType, setSelectedType] = useState<DocType>('Pay stub');
-  const [manual, setManual] = useState<Values>({});
-  const [assumptions, setAssumptions] = useState(defaults);
-  const [request, setRequest] = useState(applicants[0].request);
-  const [proposalReviewed, setProposalReviewed] = useState(true);
-  const [status, setStatus] = useState<ReviewDecision>('Pending review');
   const [modal, setModal] = useState<'upload' | 'checklist' | 'settings' | 'email' | 'samples' | 'help' | null>(null);
   const [recipient, setRecipient] = useState('');
   const [subject, setSubject] = useState('');
   const [sent, setSent] = useState(false);
   const [draft, setDraft] = useState('');
-  const [message, setMessage] = useState('');
-  const session = useRef(0);
   const applicant = applicants[index];
   const {values, sources} = resolveFields(docs, manual, applicant?.values ?? {});
   const missing = required.filter(type => documentStatus(docs, type) === 'Missing');
@@ -74,13 +87,13 @@ export default function Home() {
   function openIntake(tab: IntakeTab | 'client-intake') {
     setView('client-intake');
     setIntakeTab(tab);
-    if (tab === 'credit-proposal' && proposalReady) setProposalReviewed(true);
+    if (tab === 'credit-proposal' && proposalReady) updateApplication({proposalReviewed:true});
   }
   function rerunAssessment() {
     const assessment = assess(values, request, assumptions);
-    setRerunNotice(assessment.limit === null
+    updateApplication({rerunNotice:assessment.limit === null
       ? 'Assessment rerun. Financial inputs are still incomplete.'
-      : 'Assessment rerun with current inputs. Illustrative credit limit: ' + money(assessment.limit) + '.');
+      : 'Assessment rerun with current inputs. Illustrative credit limit: ' + money(assessment.limit) + '.'});
   }
   const overview = view === 'client-intake' && intakeTab === 'client-intake';
   const applicantName = applicant?.name ?? 'This application';
@@ -110,18 +123,18 @@ export default function Home() {
       {view === 'human-review' && nextAction.label === 'Go to Human Review' ? 'Go to Underwriting Decision' : nextAction.label}<ArrowRight size={18} aria-hidden="true"/>
     </button>;
   }
-  function resetReview() {
-    setStatus('Pending review');
-    setProposalReviewed(false);
-    setRerunNotice('');
+  function updateApplication(change: Partial<Application> | ((current: Application) => Partial<Application>)) {
+    setApplications(previous => {
+      const current = previous[applicationId];
+      return {...previous, [applicationId]: {...current, ...(typeof change === 'function' ? change(current) : change)}};
+    });
   }
+
   function selectApplicant(next: number) {
-    session.current++;
-    if (next < 0) setCustomId(crypto.randomUUID());
-    setIndex(next); setDocs(next < 0 ? [] : sampleDocs(next)); setManual({}); resetReview();
-    setRequest(applicants[next]?.request ?? 0);
-    if (next >= 0) setProposalReviewed(true);
-    setMessage('');
+    const id = applicants[next]?.id ?? crypto.randomUUID();
+    if (next < 0) setApplications(previous => ({...previous, [id]:createApplication(next)}));
+    activeApplication.current = id;
+    setApplicationId(id);
   }
   function goToTourStep(step: TourStep) {
     openIntake('client-intake');
@@ -141,6 +154,10 @@ export default function Home() {
 
   function finishTour(outcome: 'completed' | 'skipped') {
     setTour(null);
+    setModal(null);
+    selectApplicant(0);
+    openIntake('client-intake');
+    requestAnimationFrame(() => document.getElementById('activity-heading')?.focus());
     try {
       window.sessionStorage.setItem(tourSessionKey, outcome);
     } catch {
@@ -157,13 +174,11 @@ export default function Home() {
 
   async function upload(files: FileList | File[] | null, type = selectedType, bundledSample = false) {
     if (!files?.length) return;
-    const current = session.current;
     const newDocs: DocumentRecord[] = Array.from(files).map(file => ({
       id: crypto.randomUUID(), name: file.name, type, status:'Pending Verification', extraction:'processing', values:{},
     }));
-    setDocs(previous => [...previous, ...newDocs]);
-    resetReview();
-    setModal(null);
+    updateApplication(current => ({...reviewReset, docs:[...current.docs, ...newDocs], message:''}));
+    if (activeApplication.current === applicationId) setModal(null);
     await Promise.all(Array.from(files).map(async (file, i) => {
       const record = newDocs[i];
       let update: DocumentRecord;
@@ -179,22 +194,19 @@ export default function Home() {
       } catch (error) {
         update = {...record, extraction:'failed', detail:error instanceof Error ? error.message : 'PDF could not be read'};
       }
-      if (session.current === current) {
-        setDocs(previous => previous.map(doc => doc.id === record.id ? update : doc));
-      }
+      updateApplication(current => ({docs:current.docs.map(doc => doc.id === record.id ? update : doc)}));
     }));
   }
   async function processSample(type: DocType) {
-    const current = session.current;
     const slug = samples[types.indexOf(type)];
-    setMessage('Loading sample PDF…');
+    updateApplication({message:'Loading sample PDF…'});
     try {
       const response = await fetch('/samples/' + Math.max(0,index) + '-' + slug + '.pdf');
       if (!response.ok) throw new Error('Sample PDF unavailable.');
       const file = new File([await response.blob()], slug + '.pdf', {type:'application/pdf'});
-      if (session.current === current) await upload([file], type, true);
+      await upload([file], type, true);
     } catch {
-      if (session.current === current) setMessage('Could not load the sample PDF. Try downloading it instead.');
+      updateApplication({message:'Could not load the sample PDF. Try downloading it instead.'});
     }
   }
   function openEmail() {
@@ -208,7 +220,7 @@ export default function Home() {
     const next = {...manual};
     if (input === '') delete next[key];
     else next[key] = Number(input);
-    setManual(next); resetReview();
+    updateApplication({...reviewReset, manual:next});
   }
   function documents() {
     return <section className="panel documents">
@@ -218,13 +230,12 @@ export default function Home() {
           <td><div className="file"><span className="file-icon"><FileText size={17}/></span><div><strong>{doc.name}</strong><small title={doc.detail}>{doc.detail ?? (doc.extraction === 'processing' ? 'Extracting PDF text…' : 'Fictional sample data')}</small></div></div></td>
           <td>{doc.type}</td><td><span className={'pill ' + (doc.status === 'Pending Verification' ? 'warn' : 'good')}>{doc.status}</span></td>
           <td><div className="row-actions">{doc.status === 'Pending Verification' && doc.extraction !== 'processing' && <button className="text-button" onClick={() => {
-            setDocs(previous => previous.map(item => item.id === doc.id ? {...item, status:'Received and Verified'} : item));
-            resetReview();
-          }}>Mark verified in demo</button>}{doc.href && <a className="icon-button" href={doc.href} download aria-label={'Download ' + doc.name}><Download size={15}/></a>}<button className="icon-button" aria-label={'Remove ' + doc.name} onClick={() => {setDocs(previous => previous.filter(item => item.id !== doc.id)); resetReview();}}><X size={15}/></button></div></td>
+            updateApplication(current => ({...reviewReset, docs:current.docs.map(item => item.id === doc.id ? {...item, status:'Received and Verified'} : item)}));
+          }}>Mark verified in demo</button>}{doc.href && <a className="icon-button" href={doc.href} download aria-label={'Download ' + doc.name}><Download size={15}/></a>}<button className="icon-button" aria-label={'Remove ' + doc.name} onClick={() => {updateApplication(current => ({...reviewReset, docs:current.docs.filter(item => item.id !== doc.id)}));}}><X size={15}/></button></div></td>
         </tr>)}
         {!docs.length && <tr><td colSpan={4} className="empty">Upload a fictional PDF or choose a sample applicant.</td></tr>}
       </tbody></table></div>
-      <div className="panel-foot"><button className="text-button" onClick={() => {setMessage(''); setModal('samples');}}><Download size={15}/> Sample PDFs</button></div>
+      <div className="panel-foot"><button className="text-button" onClick={() => {updateApplication({message:''}); setModal('samples');}}><Download size={15}/> Sample PDFs</button></div>
     </section>;
   }
   function checklist() {
@@ -304,20 +315,20 @@ export default function Home() {
         {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
         <div className="panel-foot review-actions">
           {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
-          <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
-          <button id="approve-loan" data-tour-highlight={tourReviewing && tourTarget === 'approve-loan' || undefined} className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve Loan</button>
+          <button className="secondary" onClick={() => updateApplication({status:'Rejected in demo'})}>Reject proposal</button>
+          <button id="approve-loan" data-tour-highlight={tourReviewing && tourTarget === 'approve-loan' || undefined} className="primary" disabled={!proposalReady || approved} onClick={() => updateApplication({status:'Approved in demo'})}><BadgeCheck size={17}/> Approve Loan</button>
         </div>
       </section>
       <AgentEvaluation
-        key={applicant?.id ?? customId}
-        applicantId={applicant?.id ?? customId}
+        key={applicationId}
+        applicantId={applicationId}
         evaluating={pending}
         assessment={{financialValues:values, assumptions, requestedLimit:request, results:result, missingDocuments:missing, pendingDocuments:unverified}}
       />
     </div>;
   }
   return <div className="shell">
-    <aside className="sidebar">
+    <aside className="sidebar" data-tour-review={tourTarget === 'review-nav' && !modal || undefined}>
       <div className="brand"><div className="brand-icon"><Activity size={23} aria-hidden="true"/></div><div><strong>LoanFlow</strong><small>AI PROCESSING AGENT</small></div></div>
       <nav aria-label="Workspace navigation">
         <div className="nav-label">Workspace</div>
@@ -337,7 +348,7 @@ export default function Home() {
               data-recommended={view !== 'human-review' && proposalReady && !decisionRecorded || undefined}
               data-tour-highlight={tour === 4 && !tourReviewing || undefined}
               aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}>
-              <span className="stage-number" aria-hidden="true">2</span> Human Review
+              <span className="stage-number" aria-hidden="true">2</span><ShieldCheck size={17} className="review-nav-icon" aria-hidden="true"/><span>Human Review</span>
             </button>
           </li>
         </ul>
@@ -354,7 +365,7 @@ export default function Home() {
         <section id="agent-summary" data-tour-highlight={tour !== null && tourTarget === 'agent-summary' || undefined} className="agent-summary" aria-labelledby="activity-heading">
           <div className="agent-summary-copy">
             <div className="agent-summary-label"><Activity size={17} aria-hidden="true"/> Agent Summary</div>
-            <h2 id="activity-heading" aria-live="polite">{summary}</h2>
+            <h2 id="activity-heading" aria-live="polite" tabIndex={-1}>{summary}</h2>
             {!overview && actionButton()}
           </div>
           {view === 'client-intake' && <div className="summary-applicant">
@@ -421,13 +432,15 @@ export default function Home() {
     >
         <div className="modal-heading"><h2 id="dialog-title">{{upload:'Upload sample PDFs',checklist:'Configure checklist',settings:'Line of credit assumptions',email:'New message',samples:'Fictional sample PDFs',help:'About this demo'}[modal]}</h2><button autoFocus className="icon-button framed" aria-label={modal === 'email' ? 'Close message' : 'Close dialog'} onClick={() => setModal(null)}><X size={19}/></button></div>
         {modal === 'upload' && <div className="modal-body"><p>Choose a document type, then select fictional PDFs. Files are processed in this browser. Maximum 10 MB and 50 pages per PDF.</p><label>Document type<select value={selectedType} onChange={e => setSelectedType(e.target.value as DocType)}>{types.map(type => <option key={type}>{type}</option>)}</select></label><label className="upload-zone"><Upload size={22}/> Select PDFs<input type="file" multiple accept="application/pdf,.pdf" onChange={e => void upload(e.target.files)}/></label></div>}
-        {modal === 'checklist' && <div className="modal-body"><p>Select the document types this application requires.</p>{types.map(type => <label className="checkbox" key={type}><input type="checkbox" checked={required.includes(type)} onChange={e => {setRequired(e.target.checked ? types.filter(t => required.includes(t) || t === type) : required.filter(item => item !== type)); resetReview();}}/>{type}</label>)}</div>}
+        {modal === 'checklist' && <div className="modal-body"><p>Select the document types this application requires.</p>{types.map(type => <label className="checkbox" key={type}><input type="checkbox" checked={required.includes(type)} onChange={e => {updateApplication({...reviewReset, required:e.target.checked ? types.filter(t => required.includes(t) || t === type) : required.filter(item => item !== type)});}}/>{type}</label>)}</div>}
         {modal === 'settings' && <form className="modal-body" onSubmit={event => {
           event.preventDefault();
           const form = new FormData(event.currentTarget);
-          setAssumptions({rate:Number(form.get('rate')), balanceFactor:Number(form.get('balanceFactor')), dti:Number(form.get('dti')), ltv:Number(form.get('ltv'))});
-          setRequest(Number(form.get('request')));
-          resetReview(); setModal(null);
+          updateApplication({...reviewReset,
+            assumptions:{rate:Number(form.get('rate')), balanceFactor:Number(form.get('balanceFactor')), dti:Number(form.get('dti')), ltv:Number(form.get('ltv'))},
+            request:Number(form.get('request')),
+          });
+          setModal(null);
         }}><p>The model divides monthly DTI headroom by the greater of the monthly interest rate or the qualifying payment floor, assuming the full line is drawn.</p><label>Requested credit limit (USD)<input type="number" name="request" min="0" max="1000000000" step="1" required defaultValue={request}/></label>{assumptionFields.map(field => <label key={field.id}>{field.label}<input type="number" name={field.id} min={field.min} max={field.max} step={field.step} required defaultValue={assumptions[field.id]}/></label>)}<button className="primary" type="submit">Apply assumptions</button></form>}
         {modal === 'email' && <form className="compose-form" onSubmit={event => {
           event.preventDefault();
