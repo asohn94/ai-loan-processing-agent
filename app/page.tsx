@@ -1,13 +1,18 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Activity, BadgeCheck,  Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Send, Download,  FileText,  LayoutGrid, ListChecks, Mail, Plus, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
+import { Activity, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
 import { intakeTabs, nextWorkflowAction, type IntakeTab, type ReviewDecision } from '../lib/workflow';
 import { AgentEvaluation } from './agent-evaluation';
 
+const intakeIcons = {
+  'document-processing': FileCheck2,
+  affordability: Gauge,
+  'credit-proposal': Banknote,
+};
 const money = (value: number | null | undefined, cents = false) => value == null ? '—' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:cents ? 2 : 0,minimumFractionDigits:cents ? 2 : 0}).format(value);
 const percent = (n: number | null) => n == null ? '—' : n.toFixed(1) + '%';
 const assumptionFields = [
@@ -20,7 +25,7 @@ const assumptionFields = [
 export default function Home() {
   const [index, setIndex] = useState(0);
   const [view, setView] = useState<'client-intake' | 'human-review'>('client-intake');
-  const [intakeTab, setIntakeTab] = useState<IntakeTab>('document-processing');
+  const [intakeTab, setIntakeTab] = useState<IntakeTab | 'client-intake'>('client-intake');
   const [customId, setCustomId] = useState('');
   const [rerunNotice, setRerunNotice] = useState('');
   const [docs, setDocs] = useState(() => sampleDocs(0));
@@ -58,7 +63,7 @@ export default function Home() {
   const nextAction = nextWorkflowAction({
     processing: pending, missing: missing.length, unverified: unverified.length, limit: result.limit, decision: status,
   });
-  function openIntake(tab: IntakeTab) {
+  function openIntake(tab: IntakeTab | 'client-intake') {
     setView('client-intake');
     setIntakeTab(tab);
   }
@@ -248,6 +253,25 @@ export default function Home() {
     </div>;
   }
   return <div className="shell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-icon"><Activity size={23} aria-hidden="true"/></div><div><strong>LoanFlow</strong><small>AI PROCESSING AGENT</small></div></div>
+      <nav aria-label="Workspace navigation">
+        <div className="nav-label">Workspace</div>
+        <ul className="sidebar-pages">
+          <li>
+            <button aria-current={view === 'client-intake' && intakeTab === 'client-intake' ? 'page' : undefined} onClick={() => openIntake('client-intake')}><BriefcaseBusiness size={19} aria-hidden="true"/> Client Intake</button>
+            <ul className="intake-pages" aria-label="Client Intake supporting pages">
+              {intakeTabs.map(tab => {
+                const Icon = intakeIcons[tab.id];
+                return <li key={tab.id}><button aria-current={view === 'client-intake' && intakeTab === tab.id ? 'page' : undefined} onClick={() => openIntake(tab.id)}><Icon size={16} aria-hidden="true"/> {tab.label}</button></li>;
+              })}
+            </ul>
+          </li>
+          <li><button aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}><ShieldCheck size={19} aria-hidden="true"/> Human Review</button></li>
+        </ul>
+      </nav>
+      <div className="sidebar-foot"><ShieldCheck size={18} aria-hidden="true"/><div><strong>Portfolio sandbox</strong><small>Fictional data only</small></div></div>
+    </aside>
     <main>
       <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><button className="text-button" onClick={() => setModal('help')}><CircleHelp size={16}/> About the demo</button></header>
       <div className="workspace">
@@ -266,33 +290,27 @@ export default function Home() {
             </p>
           </div>
         </section>
-        <nav className="main-tabs" aria-label="Main navigation">
-          <button aria-current={view === 'client-intake' ? 'page' : undefined} onClick={() => setView('client-intake')}>Client Intake</button>
-          <button aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}>Human Review</button>
-        </nav>
         <section className="hero" aria-label="Active application">
           <div className="hero-content">
             <div className="hero-kicker"><span/> ACTIVE APPLICATION</div>
             <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && <p>{applicant.email}</p>}</div></div>
           </div>
-          {view === 'client-intake' && <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div><button className="hero-new" onClick={() => {selectApplicant(-1); openIntake('document-processing');}}><Plus size={15}/> New application</button></div>}
+          {view === 'client-intake' && <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div><button className="hero-new" onClick={() => {selectApplicant(-1); openIntake('client-intake');}}><Plus size={15}/> New application</button></div>}
         </section>
 
-        {view === 'client-intake' && <>
-          <nav className="intake-tabs" aria-label="Client Intake subtabs">
-            {intakeTabs.map(tab => <button key={tab.id} aria-current={tab.id === intakeTab ? 'page' : undefined} onClick={() => setIntakeTab(tab.id)}>{tab.label}</button>)}
-          </nav>
+        {view === 'client-intake' &&
           <div id={intakeTab} className="stack">
-            {intakeTab === 'document-processing' && <><div className="main-grid">{documents()}{checklist()}</div>{finances()}<div className="workflow-continue"><button className="primary" onClick={() => openIntake('affordability')}>Continue to Affordability</button></div></>}
+            {intakeTab === 'client-intake' && <div className="main-grid">{documents()}{checklist()}</div>}
+            {intakeTab === 'document-processing' && <><div className="main-grid">{documents()}{checklist()}</div>{finances()}</>}
             {intakeTab === 'affordability' && <>{metrics()}{proposal()}<section className="panel rerun-panel">
               <div className="panel-head"><div><h2>Rerun assessment</h2><p>Apply the current financial values and assumptions to the same assessment rules.</p></div>
                 <button className="secondary" onClick={rerunAssessment} disabled={pending}>Rerun assessment</button>
               </div>
               {rerunNotice && <p className="rerun-notice" role="status">{rerunNotice}</p>}
-            </section><div className="workflow-continue"><button className="primary" onClick={() => openIntake('credit-proposal')}>Continue to Credit Proposal</button></div></>}
-            {intakeTab === 'credit-proposal' && <>{proposal()}{checklist()}<div className="workflow-continue"><button className="primary" onClick={() => setView('human-review')}>Continue to Human Review</button></div></>}
+            </section></>}
+            {intakeTab === 'credit-proposal' && <>{proposal()}{checklist()}</>}
           </div>
-        </>}
+        }
         {view === 'human-review' && <div id="human-review">{humanReview()}</div>}
         <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>
       </div>
