@@ -19,6 +19,15 @@ npm run typecheck
 npm run build
 ```
 
+Install Chromium for Playwright before running the browser regression tests.
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium binary.
+
 The build exports a static site to `out/`. The package install step copies the matching PDF.js worker into `public/`. Run `npx tsx scripts/generate-samples.ts` to regenerate the bundled PDFs after editing the fictional profiles.
 
 ## Try the workflow
