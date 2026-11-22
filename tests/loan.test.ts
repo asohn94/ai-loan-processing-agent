@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { assess, defaults, documentRequest, documentStatus, parseFields, resolveFields, sampleDocs, type DocumentRecord } from '../lib/loan';
+import { applicants, assess, defaults, documentRequest, documentStatus, parseFields, resolveFields, sampleDocs, types, type DocumentRecord } from '../lib/loan';
 
 test('parses supported labels and omits conflicting amounts', () => {
   assert.deepEqual(parseFields(['Annual income: $120,000.00', 'Closing balance = $22,120.50', 'Cash balance: $25,000', 'Monthly debt payments: $1,200']), {annual:120000, debt:1200});
@@ -52,4 +52,14 @@ test('keeps extraction separate from illustrative verification and requests only
 test('requires underwriting inputs and can return zero capacity', () => {
   assert.equal(assess({monthly:4000},50000,defaults).limit,null);
   assert.equal(assess({monthly:4000,debt:3200,collateral:100000},50000,defaults).limit,0);
+});
+
+test('offers a complete Jane Doe case with a positive proposed credit limit', () => {
+  assert.deepEqual(applicants.map(applicant => applicant.name), ['John Smith', 'Jane Doe']);
+  const jane = applicants[1];
+  assert.equal(jane.values.annual, jane.values.monthly * 12);
+  const docs = sampleDocs(1);
+  assert.equal(docs.length, types.length);
+  for (const type of types) assert.equal(documentStatus(docs, type), 'Received and Verified');
+  assert.equal(assess(jane.values, jane.request, defaults).limit, 95000);
 });

@@ -15,18 +15,17 @@ export type DocumentRecord = {
 };
 export const applicants = [
   { name: 'John Smith', email: 'johnsmith@gmail.com', id: 'LP-1042', initials: 'JS', request: 85000, values: {annual: 126000, monthly: 10500, cash: 34800, investments: 72500, debt: 2175, collateral: 140000}},
-  { name: 'Jordan Hayes', id: 'LP-1043', initials: 'JH', request: 48000, values: {annual: 78000, monthly: 6500, cash: 17500, investments: 23000, debt: 1820, collateral: 60000}},
-  { name: 'Casey Rivera', id: 'LP-1044', initials: 'CR', request: 110000, values: {annual: 156000, monthly: 13000, cash: 61800, investments: 89500, debt: 2800, collateral: 165000}},
+  { name: 'Jane Doe', email: 'jane.doe@example.com', id: 'LP-1043', initials: 'JD', request: 95000, values: {annual: 144000, monthly: 12000, cash: 47500, investments: 86000, debt: 1950, collateral: 150000}},
 ];
 export const samples = ['pay-stub', 'bank-statement', 'tax-return', 'asset-statement'];
 export function sampleDocs(index: number): DocumentRecord[] {
   const { values } = applicants[index];
   const { annual, monthly, cash, investments, debt, collateral } = values;
   const sets = [{monthly}, {cash, debt}, {annual}, {investments, collateral}];
-  return [0, 1, 3].map(i => ({
-    id: samples[i], name: samples[i] + '.pdf', type: types[i],
+  return types.flatMap((type, i) => index === 0 && type === 'Tax return' ? [] : [{
+    id: samples[i], name: samples[i] + '.pdf', type,
     status: 'Received and Verified', values: sets[i], href: '/samples/' + index + '-' + samples[i] + '.pdf',
-  }));
+  }]);
 }
 export function documentStatus(docs: DocumentRecord[], type: DocType): DocumentStatus {
   const matching = docs.filter(doc => doc.type === type);

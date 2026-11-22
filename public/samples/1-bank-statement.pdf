@@ -12,14 +12,14 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 246 >>
+<< /Length 242 >>
 stream
 BT /F1 16 Tf 48 740 Td
 (LoanFlow | Fictional document) Tj
 0 -30 Td (Bank statement) Tj
-0 -30 Td (Jordan Hayes / LP-1043) Tj
-0 -30 Td (Cash balance: $17,500.00) Tj
-0 -30 Td (Monthly debt payments: $1,820.00) Tj
+0 -30 Td (Jane Doe / LP-1043) Tj
+0 -30 Td (Cash balance: $47,500.00) Tj
+0 -30 Td (Monthly debt payments: $1,950.00) Tj
 0 -30 Td (Portfolio demo only) Tj
 ET
 endstream
@@ -35,5 +35,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-608
+604
 %%EOF

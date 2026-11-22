@@ -12,14 +12,14 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 242 >>
+<< /Length 239 >>
 stream
 BT /F1 16 Tf 48 740 Td
 (LoanFlow | Fictional document) Tj
 0 -30 Td (Asset statement) Tj
-0 -30 Td (Jordan Hayes / LP-1043) Tj
-0 -30 Td (Investments: $23,000.00) Tj
-0 -30 Td (Collateral value: $60,000.00) Tj
+0 -30 Td (Jane Doe / LP-1043) Tj
+0 -30 Td (Investments: $86,000.00) Tj
+0 -30 Td (Collateral value: $150,000.00) Tj
 0 -30 Td (Portfolio demo only) Tj
 ET
 endstream
@@ -35,5 +35,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-604
+601
 %%EOF

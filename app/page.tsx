@@ -6,11 +6,11 @@ import { applicants, assess, defaults, documentRequest, documentStatus, fields, 
 import { extractPdf } from '../lib/pdf';
 
 const steps = [
-  {title:'Client intake', short:'Intake', description:'Applicant & documents', icon: BriefcaseBusiness},
-  {title:'Document processing', short:'Documents', description:'Extract financial data', icon: FileCheck2},
-  {title:'Affordability', short:'Assessment', description:'Evaluate credit capacity', icon: Gauge},
-  {title:'Credit proposal', short:'Proposal', description:'Review estimated terms', icon: Banknote},
-  {title:'Human review', short:'Review', description:'Record a demo decision', icon: ShieldCheck},
+  {title:'Client intake', short:'Intake', icon: BriefcaseBusiness},
+  {title:'Document processing', short:'Documents', icon: FileCheck2},
+  {title:'Affordability', short:'Assessment', icon: Gauge},
+  {title:'Credit proposal', short:'Proposal', icon: Banknote},
+  {title:'Human review', short:'Review', icon: ShieldCheck},
 ];
 const money = (value: number | null | undefined, cents = false) => value == null ? '—' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD',maximumFractionDigits:cents ? 2 : 0,minimumFractionDigits:cents ? 2 : 0}).format(value);
 const percent = (n: number | null) => n == null ? '—' : n.toFixed(1) + '%';
@@ -54,6 +54,22 @@ export default function Home() {
   ];
   const proposalReady = outstanding.length === 0;
   const approved = status === 'Approved in demo';
+  const decisionRecorded = status !== 'Pending review';
+  const reviewStatus = decisionRecorded ? status : proposalReady ? 'Ready for human review' : 'Pending review';
+  const underwritingAction = 'Human underwriter to verify the findings and approve or reject the proposal.';
+  const nextAction = pending ? 'Wait for PDF processing to finish.'
+    : missing.length ? 'Request outstanding documents before final underwriting.'
+    : unverified.length ? 'Review documents pending verification.'
+    : result.limit === null ? 'Complete the financial information needed for the credit assessment.'
+    : result.limit === 0 ? 'Review the credit request and assessment inputs.'
+    : decisionRecorded ? 'Review the recorded demo decision.'
+    : underwritingAction;
+  const documentActivity = done === required.length && required.length > 0
+    ? 'All required documents are on file'
+    : docs.length ? 'Document intake reviewed' : 'Document intake started';
+  const assessmentActivity = result.limit === null ? 'assessment awaiting financial inputs'
+    : result.limit === 0 ? 'assessment found no positive credit limit'
+    : proposalReady ? 'illustrative credit proposal prepared' : 'illustrative credit assessment prepared';
   const resetReview = () => setStatus('Pending review');
   function selectApplicant(next: number) {
     session.current++;
@@ -104,7 +120,7 @@ export default function Home() {
     }
   }
   function openEmail() {
-    setRecipient(applicant && 'email' in applicant ? applicant.email ?? '' : '');
+    setRecipient(applicant?.email ?? '');
     setSubject(requestSubject);
     setDraft(documentRequest(applicant?.name ?? 'Applicant', missing));
     setSent(false);
@@ -167,7 +183,7 @@ export default function Home() {
   }
   function proposal() {
     return <section className="panel">
-      <div className="panel-head"><div><h2>Secured Line of Credit proposal</h2><p>The proposed limit is capped by the request and the lower of income-based and collateral-based capacity.</p></div><span className="pill neutral">Illustrative</span></div>
+      <div className="panel-head"><div><h2>Secured Line of Credit proposal</h2><p>The proposed limit is capped by the request and the lower of income-based and collateral-based capacity.</p></div><span className="pill neutral">{reviewStatus}</span></div>
       <div className="financial-grid terms">
         {[
           ['Requested credit limit', money(request)],
@@ -193,10 +209,10 @@ export default function Home() {
           <div><dt>Missing or pending</dt><dd>{missing.length + unverified.length}</dd></div>
         </dl>
         <progress aria-label="Illustrative verification completion" value={required.length ? done : 1} max={required.length || 1}/>
-        <p className="review-completion">{required.length ? done + ' of ' + required.length + ' complete' : 'No documents required'}</p>
+        <p className="review-completion">{!required.length ? 'No documents required' : done === required.length ? 'All received and verified' : done + ' of ' + required.length + ' complete'}</p>
       </section>
       <section className="panel">
-        <div className="panel-head"><h2>Credit Decision Summary</h2><span className={'pill ' + (approved ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{status}</span></div>
+        <div className="panel-head"><h2>Credit Decision Summary</h2><span className={'pill ' + (approved ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{reviewStatus}</span></div>
         <dl className="review-values">
           <div><dt>Requested credit limit</dt><dd>{money(request)}</dd></div>
           <div><dt>{approved ? 'Human-approved credit limit (demo)' : 'Proposed credit limit'}</dt><dd>{money(result.limit)}</dd></div>
@@ -206,9 +222,10 @@ export default function Home() {
       </section>
       <section className="panel review-outstanding">
         <div className="panel-head"><div><h2>Outstanding Requirements</h2>
-          <p>{outstanding.length ? 'Resolve these items before approving the proposal.' : approved ? 'All requirements are complete. Approval recorded in the demo.' : 'All requirements are complete. The proposal is ready for a human decision.'}</p>
+          <p>{outstanding.length ? 'Resolve these items before approving the proposal.' : 'None'}</p>
         </div></div>
         {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
+        <p className="review-next"><strong>Next action:</strong> {nextAction}</p>
         <div className="panel-foot review-actions">
           <button className="secondary" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
           <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
@@ -231,18 +248,21 @@ export default function Home() {
     <main>
       <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><span className="demo-badge"><span/> Demo environment</span></header>
       <div className="workspace">
-        <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>From document intake to human underwriting in one workspace.</p></div><button className="secondary" onClick={() => {selectApplicant(-1); setStep(0);}}><Plus size={17}/> New application</button></div>
+        <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>An AI-powered agent that reviews loan documents, assesses credit eligibility, and prepares loan proposals for human approval.</p></div><button className="secondary" onClick={() => {selectApplicant(-1); setStep(0);}}><Plus size={17}/> New application</button></div>
         <section className="hero" aria-label="Active application">
           <div className="hero-content">
             <div className="hero-kicker"><span/> ACTIVE APPLICATION</div>
-            <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && 'email' in applicant && <p>{applicant.email}</p>}</div></div>
+            <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && <p>{applicant.email}</p>}</div></div>
           </div>
-          <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}<option value={-1}>Custom PDF intake</option></select><ChevronDown size={16}/></div></div>
+          <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div></div>
         </section>
 
-        <section className="flow" aria-label="Application workflow">
-          <div className="flow-heading"><h2>Application workflow</h2><span>Step {step + 1} of {steps.length}</span></div>
-          <div className="flow-grid">{steps.map(({title,description,icon:Icon},i) => <button key={title} className={'flow-step ' + (step === i ? 'current' : '')} aria-current={step === i ? 'step' : undefined} onClick={() => setStep(i)}><span className="step-icon"><Icon size={18}/></span><span><strong>{title}</strong><small>{description}</small></span></button>)}</div>
+        <section className="agent-activity" aria-labelledby="activity-heading">
+          <Activity size={18} aria-hidden="true"/>
+          <div>
+            <h2 id="activity-heading">Agent Activity Summary</h2>
+            <p>{documentActivity}{missing.length > 0 ? ` · ${missing.length} missing` : ''} · {assessmentActivity}. <strong>Next:</strong> {nextAction}</p>
+          </div>
         </section>
 
         {step === 0 && <div className="main-grid">{documents()}{checklist()}</div>}
