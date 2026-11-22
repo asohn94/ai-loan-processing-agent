@@ -17,9 +17,12 @@ test('routes each applicant and workflow state to its next action', () => {
     const action = nextWorkflowAction({...base, missing, limit});
     assert.equal(action.target, index === 0 ? 'request-documents' : 'human-review');
   }
-  assert.equal(nextWorkflowAction({...base, processing:true}).target, 'document-processing');
+  assert.equal(nextWorkflowAction({...base, proposalNeedsReview:true}).label, 'Review Credit Proposal');
+  assert.equal(nextWorkflowAction(base).label, 'Go to Human Review');
+  assert.equal(nextWorkflowAction({...base, processing:true}).label, 'Process Documents');
   assert.equal(nextWorkflowAction({...base, unverified:1}).target, 'document-processing');
-  assert.equal(nextWorkflowAction({...base, limit:null}).target, 'affordability');
+  assert.equal(nextWorkflowAction({...base, limit:null}).label, 'Run Affordability Assessment');
+  assert.equal(nextWorkflowAction({...base, limit:null, missing:1}).label, 'Request Missing Documents');
   assert.equal(nextWorkflowAction({...base, limit:0}).target, 'affordability');
   for (const decision of ['Approved in demo', 'Rejected in demo'] as const) {
     assert.equal(nextWorkflowAction({...base, decision}).label, 'Review decision');

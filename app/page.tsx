@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Activity, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
+import { Activity, ArrowRight, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
@@ -34,6 +34,7 @@ export default function Home() {
   const [manual, setManual] = useState<Values>({});
   const [assumptions, setAssumptions] = useState(defaults);
   const [request, setRequest] = useState(applicants[0].request);
+  const [proposalReviewed, setProposalReviewed] = useState(true);
   const [status, setStatus] = useState<ReviewDecision>('Pending review');
   const [modal, setModal] = useState<'upload' | 'checklist' | 'settings' | 'email' | 'samples' | 'help' | null>(null);
   const [recipient, setRecipient] = useState('');
@@ -46,26 +47,31 @@ export default function Home() {
   const {values, sources} = resolveFields(docs, manual, applicant?.values ?? {});
   const missing = required.filter(type => documentStatus(docs, type) === 'Missing');
   const unverified = required.filter(type => documentStatus(docs, type) === 'Pending Verification');
-  const done = required.length - missing.length - unverified.length;
+  const received = required.filter(type => documentStatus(docs, type) === 'Received and Verified');
+  const done = received.length;
   const result = assess(values, request, assumptions);
   const pending = docs.some(doc => doc.extraction === 'processing');
-  const outstanding = [
-    ...missing.map(type => type + ' — Missing'),
-    ...unverified.map(type => type + ' — Pending Verification'),
+  const otherRequirements = [
     ...(pending ? ['PDF processing is in progress.'] : []),
     ...(result.limit === null ? ['Complete gross income, monthly liabilities, and collateral value.'] : []),
     ...(result.limit === 0 ? ['The current inputs support no positive credit limit.'] : []),
+  ];
+  const outstanding = [
+    ...missing.map(type => type + ' — Missing'),
+    ...unverified.map(type => type + ' — Pending Verification'),
+    ...otherRequirements,
   ];
   const proposalReady = outstanding.length === 0;
   const approved = status === 'Approved in demo';
   const decisionRecorded = status !== 'Pending review';
   const reviewStatus = decisionRecorded ? status : proposalReady ? 'Ready for human review' : 'Pending review';
   const nextAction = nextWorkflowAction({
-    processing: pending, missing: missing.length, unverified: unverified.length, limit: result.limit, decision: status,
+    processing: pending, missing: missing.length, unverified: unverified.length, limit: result.limit, decision: status, proposalNeedsReview: !proposalReviewed && !(view === 'client-intake' && intakeTab === 'credit-proposal'),
   });
   function openIntake(tab: IntakeTab | 'client-intake') {
     setView('client-intake');
     setIntakeTab(tab);
+    if (tab === 'credit-proposal' && proposalReady) setProposalReviewed(true);
   }
   function rerunAssessment() {
     const assessment = assess(values, request, assumptions);
@@ -73,14 +79,37 @@ export default function Home() {
       ? 'Assessment rerun. Financial inputs are still incomplete.'
       : 'Assessment rerun with current inputs. Illustrative credit limit: ' + money(assessment.limit) + '.');
   }
-  const documentActivity = done === required.length && required.length > 0
-    ? 'All required documents are on file'
-    : docs.length ? 'Document intake reviewed' : 'Document intake started';
-  const assessmentActivity = result.limit === null ? 'assessment awaiting financial inputs'
-    : result.limit === 0 ? 'assessment found no positive credit limit'
-    : proposalReady ? 'illustrative credit proposal prepared' : 'illustrative credit assessment prepared';
+  const overview = view === 'client-intake' && intakeTab === 'client-intake';
+  const applicantName = applicant?.name ?? 'This application';
+  const summary = decisionRecorded ? applicantName + (approved ? ' was approved in this demo.' : ' was declined in this demo.')
+    : pending ? 'I’m processing documents for ' + (applicant?.name ?? 'this application') + '.'
+    : missing.length ? (docs.length ? 'I reviewed the documents on file for ' + (applicant?.name ?? 'this application') + '. ' : '') + 'Still needed: ' + missing.join(', ').toLowerCase() + '.'
+    : unverified.length ? 'I’ve received the documents for ' + (applicant?.name ?? 'this application') + '. Some still need review.'
+    : result.limit === null ? 'I need more financial information to assess ' + (applicant?.name ?? 'this application') + '.'
+    : result.limit === 0 ? 'The current figures don’t support a credit limit for ' + (applicant?.name ?? 'this application') + '.'
+    : 'The documents are on file and my illustrative credit assessment for ' + (applicant?.name ?? 'this application') + ' is ready.';
+
+  function takeNextAction() {
+    if (nextAction.target === 'request-documents') openEmail();
+    else if (nextAction.target === 'human-review') {
+      if (view === 'human-review') document.getElementById('underwriting-decision')?.focus();
+      else setView('human-review');
+    } else {
+      openIntake(nextAction.target);
+      if (nextAction.target === 'affordability' && result.limit === null) rerunAssessment();
+      if (view === 'client-intake' && intakeTab === nextAction.target) {
+        document.getElementById(intakeTab)?.focus();
+      }
+    }
+  }
+  function actionButton() {
+    return <button className="primary guided-action" onClick={takeNextAction}>
+      {view === 'human-review' && nextAction.label === 'Go to Human Review' ? 'Go to Underwriting Decision' : nextAction.label}<ArrowRight size={18} aria-hidden="true"/>
+    </button>;
+  }
   function resetReview() {
     setStatus('Pending review');
+    setProposalReviewed(false);
     setRerunNotice('');
   }
   function selectApplicant(next: number) {
@@ -88,6 +117,7 @@ export default function Home() {
     if (next < 0) setCustomId(crypto.randomUUID());
     setIndex(next); setDocs(next < 0 ? [] : sampleDocs(next)); setManual({}); resetReview();
     setRequest(applicants[next]?.request ?? 0);
+    if (next >= 0) setProposalReviewed(true);
     setMessage('');
   }
   async function upload(files: FileList | File[] | null, type = selectedType, bundledSample = false) {
@@ -171,7 +201,7 @@ export default function Home() {
         const verified = state === 'Received and Verified';
         return <div key={type}><span className={'check-icon ' + (verified ? 'good' : 'warn')}>{verified ? <Check size={15}/> : <TriangleAlert size={14}/>}</span><span>{type}</span><small className={verified ? '' : 'warning-text'}>{state}</small></div>;
       })}{!required.length && <p>No documents required.</p>}</div>
-      <button className="secondary email-button" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
+      {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary email-button" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
     </section>;
   }
   function finances() {
@@ -223,7 +253,7 @@ export default function Home() {
         <progress aria-label="Illustrative verification completion" value={required.length ? done : 1} max={required.length || 1}/>
         <p className="review-completion">{!required.length ? 'No documents required' : done === required.length ? 'All received and verified' : done + ' of ' + required.length + ' complete'}</p>
       </section>
-      <section className="panel">
+      <section className="panel" id="underwriting-decision" tabIndex={-1}>
         <div className="panel-head"><h2>Credit Decision Summary</h2><span className={'pill ' + (approved ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{reviewStatus}</span></div>
         <dl className="review-values">
           <div><dt>Requested credit limit</dt><dd>{money(request)}</dd></div>
@@ -237,9 +267,8 @@ export default function Home() {
           <p>{outstanding.length ? 'Resolve these items before approving the proposal.' : 'None'}</p>
         </div></div>
         {outstanding.length > 0 && <ul className="review-blockers">{outstanding.map(item => <li key={item}><TriangleAlert size={16}/>{item}</li>)}</ul>}
-        <p className="review-next"><strong>Next action:</strong> {nextAction.detail}</p>
         <div className="panel-foot review-actions">
-          <button className="secondary" onClick={openEmail} disabled={!missing.length}><Mail size={16}/> Request Missing Documents</button>
+          {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
           <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
           <button className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve proposal</button>
         </div>
@@ -276,31 +305,50 @@ export default function Home() {
       <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><button className="text-button" onClick={() => setModal('help')}><CircleHelp size={16}/> About the demo</button></header>
       <div className="workspace">
         <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>An AI-powered agent that reviews loan documents, assesses credit eligibility, and prepares loan proposals for human approval.</p></div></div>
-        <section className="agent-activity" aria-labelledby="activity-heading">
-          <Activity size={18} aria-hidden="true"/>
-          <div>
-            <h2 id="activity-heading">Agent Activity Summary</h2>
-            <p aria-live="polite"><strong>{applicant?.name ?? 'Custom application'}</strong> · {decisionRecorded ? status : <>{documentActivity}{missing.length > 0 ? ` · ${missing.length} missing` : ''} · {assessmentActivity}</>}. <strong>Next:</strong>{' '}
-              <a href={nextAction.target === 'request-documents' ? '#dialog-title' : '#' + nextAction.target} onClick={event => {
-                event.preventDefault();
-                if (nextAction.target === 'request-documents') openEmail();
-                else if (nextAction.target === 'human-review') setView('human-review');
-                else openIntake(nextAction.target);
-              }}>{nextAction.label}</a>
-            </p>
+        <section className="agent-summary" aria-labelledby="activity-heading">
+          <div className="agent-summary-copy">
+            <div className="agent-summary-label"><Activity size={17} aria-hidden="true"/> Agent Summary</div>
+            <h2 id="activity-heading" aria-live="polite">{summary}</h2>
+            {!overview && actionButton()}
           </div>
-        </section>
-        <section className="hero" aria-label="Active application">
-          <div className="hero-content">
-            <div className="hero-kicker"><span/> ACTIVE APPLICATION</div>
-            <div className="hero-profile"><div className="avatar">{applicant?.initials ?? 'NA'}</div><div><h2>{applicant?.name ?? 'New application'}</h2><p>{applicant?.id ?? 'Custom demo'} <span>·</span> {product}</p>{applicant && <p>{applicant.email}</p>}</div></div>
-          </div>
-          {view === 'client-intake' && <div className="hero-side"><label htmlFor="applicant">Fictional applicant</label><div className="select-shell"><select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>{applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}</select><ChevronDown size={16}/></div><button className="hero-new" onClick={() => {selectApplicant(-1); openIntake('client-intake');}}><Plus size={15}/> New application</button></div>}
+          {view === 'client-intake' && <div className="summary-applicant">
+            <label htmlFor="applicant">Fictional applicant</label>
+            <div className="select-shell">
+              <select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>
+                {applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}
+              </select>
+              <ChevronDown size={16} aria-hidden="true"/>
+            </div>
+            {intakeTab === 'document-processing' && <button className="hero-new" onClick={() => {selectApplicant(-1); openIntake('document-processing');}}><Plus size={15}/> New application</button>}
+          </div>}
         </section>
 
         {view === 'client-intake' &&
-          <div id={intakeTab} className="stack">
-            {intakeTab === 'client-intake' && <div className="main-grid">{documents()}{checklist()}</div>}
+          <div id={intakeTab} className="stack" tabIndex={-1}>
+            {overview && <>
+              <section className="panel overview-documents" aria-labelledby="overview-documents-heading">
+                <h2 id="overview-documents-heading">Document Status</h2>
+                <div className="overview-document-groups">
+                  <div>
+                    <h3>Received &amp; Verified</h3>
+                    {received.length === 0 ? <p>No required documents marked verified.</p> : <ul>
+                      {received.map(type => <li key={type}><Check className="overview-check" size={18} aria-hidden="true"/>{type}</li>)}
+                    </ul>}
+                  </div>
+                  <div>
+                    <h3>Missing or Pending</h3>
+                    {outstanding.length === 0 ? <p className="overview-confirmation"><Check className="overview-check" size={18} aria-hidden="true"/>{required.length ? 'All required documents received' : 'No documents required'}</p> : <ul>
+                      {outstanding.map(item => <li key={item}><TriangleAlert className="overview-warning" size={17} aria-hidden="true"/>{item}</li>)}
+                    </ul>}
+                  </div>
+                </div>
+                <p className="overview-disclaimer">Verification statuses are illustrative. PDF extraction does not verify authenticity.</p>
+              </section>
+              <section className="panel recommended-action" aria-labelledby="recommended-heading">
+                <div><h2 id="recommended-heading">Recommended Next Action</h2><p>{nextAction.detail}</p></div>
+                {actionButton()}
+              </section>
+            </>}
             {intakeTab === 'document-processing' && <><div className="main-grid">{documents()}{checklist()}</div>{finances()}</>}
             {intakeTab === 'affordability' && <>{metrics()}{proposal()}<section className="panel rerun-panel">
               <div className="panel-head"><div><h2>Rerun assessment</h2><p>Apply the current financial values and assumptions to the same assessment rules.</p></div>
@@ -312,7 +360,7 @@ export default function Home() {
           </div>
         }
         {view === 'human-review' && <div id="human-review">{humanReview()}</div>}
-        <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>
+        {!overview && <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>}
       </div>
     </main>
     {modal && <dialog
