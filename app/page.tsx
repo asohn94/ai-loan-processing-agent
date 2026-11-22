@@ -1,12 +1,14 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Activity, ArrowRight, BadgeCheck, Banknote, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
+import { Activity, ArrowDown, ArrowRight, BadgeCheck, Banknote, Check, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, FileCheck2, FileText, Gauge, LayoutGrid, ListChecks, Mail, Plus, Send, Settings2, ShieldCheck, Sparkles, TriangleAlert, Upload, X } from 'lucide-react';
 import { applicants, assess, defaults, documentRequest, documentStatus, fields, product, requestSubject, resolveFields, sampleDocs, samples, types, type DocType, type DocumentRecord, type Field, type Values } from '../lib/loan';
 import { extractPdf } from '../lib/pdf';
 
 import { intakeTabs, nextWorkflowAction, type IntakeTab, type ReviewDecision } from '../lib/workflow';
 import { AgentEvaluation } from './agent-evaluation';
+import { DemoTour, tourSessionKey, type TourStep } from './demo-tour';
+import { WelcomeModal } from './welcome-modal';
 
 const intakeIcons = {
   'document-processing': FileCheck2,
@@ -23,6 +25,7 @@ const assumptionFields = [
 ] as const;
 
 export default function Home() {
+  const [tour, setTour] = useState<TourStep | null>(null);
   const [index, setIndex] = useState(0);
   const [view, setView] = useState<'client-intake' | 'human-review'>('client-intake');
   const [intakeTab, setIntakeTab] = useState<IntakeTab | 'client-intake'>('client-intake');
@@ -103,7 +106,7 @@ export default function Home() {
     }
   }
   function actionButton() {
-    return <button className="primary guided-action" onClick={takeNextAction}>
+    return <button id="guided-action" data-tour-highlight={tour === 1 || tourTarget === 'guided-action' ? true : undefined} className="primary guided-action" onClick={takeNextAction}>
       {view === 'human-review' && nextAction.label === 'Go to Human Review' ? 'Go to Underwriting Decision' : nextAction.label}<ArrowRight size={18} aria-hidden="true"/>
     </button>;
   }
@@ -120,6 +123,38 @@ export default function Home() {
     if (next >= 0) setProposalReviewed(true);
     setMessage('');
   }
+  function goToTourStep(step: TourStep) {
+    openIntake('client-intake');
+    if (step === 3 && index !== 0) selectApplicant(0);
+    if (step === 4 && index !== 1) selectApplicant(1);
+    setTour(step);
+  }
+
+  function offerTour() {
+    try {
+      if (window.sessionStorage.getItem(tourSessionKey)) return;
+    } catch {
+      // The tour still works when browser storage is unavailable.
+    }
+    setTour(0);
+  }
+
+  function finishTour(outcome: 'completed' | 'skipped') {
+    setTour(null);
+    try {
+      window.sessionStorage.setItem(tourSessionKey, outcome);
+    } catch {
+      // Dismiss the tour even when browser storage is unavailable.
+    }
+  }
+
+  const tourReviewing = tour === 4 && view === 'human-review';
+  const tourTarget = tour === 0 ? 'demo-tips'
+    : tour === 2 && view === 'client-intake' ? 'applicant'
+    : tour === 3 && nextAction.target === 'request-documents' ? 'guided-action'
+    : tour === 4 ? tourReviewing ? proposalReady && !approved ? 'approve-loan' : 'underwriting-decision' : 'review-nav'
+    : 'agent-summary';
+
   async function upload(files: FileList | File[] | null, type = selectedType, bundledSample = false) {
     if (!files?.length) return;
     const current = session.current;
@@ -253,7 +288,7 @@ export default function Home() {
         <progress aria-label="Illustrative verification completion" value={required.length ? done : 1} max={required.length || 1}/>
         <p className="review-completion">{!required.length ? 'No documents required' : done === required.length ? 'All received and verified' : done + ' of ' + required.length + ' complete'}</p>
       </section>
-      <section className="panel" id="underwriting-decision" tabIndex={-1}>
+      <section className="panel" id="underwriting-decision" data-tour-highlight={tourReviewing && tourTarget === 'underwriting-decision' || undefined} tabIndex={-1}>
         <div className="panel-head"><h2>Credit Decision Summary</h2><span className={'pill ' + (approved ? 'good' : status === 'Rejected in demo' ? 'warn' : 'neutral')} role="status">{reviewStatus}</span></div>
         <dl className="review-values">
           <div><dt>Requested credit limit</dt><dd>{money(request)}</dd></div>
@@ -270,7 +305,7 @@ export default function Home() {
         <div className="panel-foot review-actions">
           {missing.length > 0 && nextAction.target !== 'request-documents' && <button className="secondary" onClick={openEmail}><Mail size={16}/> Request Missing Documents</button>}
           <button className="secondary" onClick={() => setStatus('Rejected in demo')}>Reject proposal</button>
-          <button className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve proposal</button>
+          <button id="approve-loan" data-tour-highlight={tourReviewing && tourTarget === 'approve-loan' || undefined} className="primary" disabled={!proposalReady || approved} onClick={() => setStatus('Approved in demo')}><BadgeCheck size={17}/> Approve Loan</button>
         </div>
       </section>
       <AgentEvaluation
@@ -288,7 +323,7 @@ export default function Home() {
         <div className="nav-label">Workspace</div>
         <ul className="sidebar-pages">
           <li>
-            <button aria-current={view === 'client-intake' && intakeTab === 'client-intake' ? 'page' : undefined} onClick={() => openIntake('client-intake')}><BriefcaseBusiness size={19} aria-hidden="true"/> Client Intake</button>
+            <button className="sidebar-stage" data-active={view === 'client-intake' || undefined} aria-current={view === 'client-intake' && intakeTab === 'client-intake' ? 'page' : undefined} onClick={() => openIntake('client-intake')}><span className="stage-number" aria-hidden="true">1</span> Client Intake</button>
             <ul className="intake-pages" aria-label="Client Intake supporting pages">
               {intakeTabs.map(tab => {
                 const Icon = intakeIcons[tab.id];
@@ -296,16 +331,27 @@ export default function Home() {
               })}
             </ul>
           </li>
-          <li><button aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}><ShieldCheck size={19} aria-hidden="true"/> Human Review</button></li>
+          <li>
+            <div className="stage-connector"><ArrowDown size={14} aria-hidden="true"/> Next stage</div>
+            <button id="review-nav" className="sidebar-stage" data-active={view === 'human-review' || undefined}
+              data-recommended={view !== 'human-review' && proposalReady && !decisionRecorded || undefined}
+              data-tour-highlight={tour === 4 && !tourReviewing || undefined}
+              aria-current={view === 'human-review' ? 'page' : undefined} onClick={() => setView('human-review')}>
+              <span className="stage-number" aria-hidden="true">2</span> Human Review
+            </button>
+          </li>
         </ul>
       </nav>
       <div className="sidebar-foot"><ShieldCheck size={18} aria-hidden="true"/><div><strong>Portfolio sandbox</strong><small>Fictional data only</small></div></div>
     </aside>
     <main>
-      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><button className="text-button" onClick={() => setModal('help')}><CircleHelp size={16}/> About the demo</button></header>
+      <header className="topbar"><div className="breadcrumbs"><LayoutGrid size={16}/> <span>Workspace</span><ChevronRight size={14}/><strong>{product}</strong></div><div className="header-tools">
+        <button id="demo-tips" className="text-button" onClick={() => goToTourStep(1)}><Sparkles size={15} aria-hidden="true"/> Demo Tips</button>
+        <button className="text-button" onClick={() => setModal('help')}><CircleHelp size={16} aria-hidden="true"/> About the demo</button>
+      </div></header>
       <div className="workspace">
         <div className="intro"><div><h1>AI Loan Processing Agent</h1><p>An AI-powered agent that reviews loan documents, assesses credit eligibility, and prepares loan proposals for human approval.</p></div></div>
-        <section className="agent-summary" aria-labelledby="activity-heading">
+        <section id="agent-summary" data-tour-highlight={tour !== null && tourTarget === 'agent-summary' || undefined} className="agent-summary" aria-labelledby="activity-heading">
           <div className="agent-summary-copy">
             <div className="agent-summary-label"><Activity size={17} aria-hidden="true"/> Agent Summary</div>
             <h2 id="activity-heading" aria-live="polite">{summary}</h2>
@@ -314,7 +360,7 @@ export default function Home() {
           {view === 'client-intake' && <div className="summary-applicant">
             <label htmlFor="applicant">Fictional applicant</label>
             <div className="select-shell">
-              <select id="applicant" value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>
+              <select id="applicant" data-tour-highlight={tour === 2 || undefined} value={index < 0 ? '' : index} ref={select => { if (select && index < 0) select.selectedIndex = -1; }} onChange={event => selectApplicant(Number(event.target.value))}>
                 {applicants.map((item,i) => <option key={item.id} value={i}>{item.name}</option>)}
               </select>
               <ChevronDown size={16} aria-hidden="true"/>
@@ -363,6 +409,9 @@ export default function Home() {
         {!overview && <div className="bottom"><span><ShieldCheck size={16}/> Demo only. Verification statuses are illustrative. PDF text extraction does not authenticate documents.</span></div>}
       </div>
     </main>
+    <WelcomeModal onExplore={offerTour}/>
+    {tour !== null && !modal && <DemoTour step={tour} targetId={tourTarget} reviewing={tourReviewing} readyForReview={proposalReady}
+      onNavigate={goToTourStep} onExit={finishTour}/>}
     {modal && <dialog
       ref={dialog => { if (dialog && !dialog.open) dialog.showModal(); }}
       aria-labelledby="dialog-title"

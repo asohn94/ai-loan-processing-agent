@@ -5,7 +5,7 @@ import { ArrowRight, X } from 'lucide-react';
 
 const sessionKey = 'loanflow.welcome-shown';
 
-export function WelcomeModal() {
+export function WelcomeModal({ onExplore }: { onExplore: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -33,13 +33,14 @@ export function WelcomeModal() {
         <button type="button" className="icon-button framed" aria-label="Close welcome message" onClick={() => dialog.current?.close()}><X size={18}/></button>
       </div>
       <div className="welcome-body">
+        <h3>Demo Overview</h3>
         <p>This interactive prototype demonstrates how AI agents can streamline the loan origination process by automating document review, financial assessment, and loan proposal generation.</p>
         <p>Inspired by a real-world financial services use case, I built this prototype using OpenAI Codex to demonstrate how manual workflows can be transformed through intelligent automation, with human-in-the-loop evaluation and feedback-driven improvement.</p>
         <p>Explore two fictional client scenarios to see how the workflow handles missing documentation, prepares credit proposals, and incorporates human oversight.</p>
-        <p className="welcome-disclaimer"><strong>Disclaimer</strong> This demo uses fictional client data and illustrative credit assessments. Document processing, evaluation, and feedback capabilities are demonstrated at prototype level, not as a production lending system.</p>
-        <form method="dialog">
+        <form method="dialog" onSubmit={onExplore}>
           <button className="primary" autoFocus>Start Exploring <ArrowRight size={17} aria-hidden="true"/></button>
         </form>
+        <p className="welcome-disclaimer">This demo uses fictional client data and illustrative credit assessments. Document processing, evaluation, and feedback capabilities are demonstrated at prototype level, not as a production lending system.</p>
       </div>
     </dialog>
   );

@@ -168,8 +168,6 @@ body:has(.welcome-modal[open]) {overflow:hidden}
 .welcome-heading {display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:22px 22px 14px;border-bottom:1px solid var(--line);background:#f2f8f4}
 .welcome-heading h2 {font-size:clamp(20px,4.5vw,25px);max-width:28ch}
 .welcome-body {display:grid;gap:13px;padding:16px 22px 22px;color:var(--muted);font-size:14px;line-height:1.5}
-.welcome-disclaimer {padding:10px 12px;border-radius:8px;background:#f0f5f2;font-size:13px}
-.welcome-disclaimer strong {display:block;color:var(--ink)}
 .welcome-body .primary {min-width:164px}
 @media(max-width:480px) {
   .welcome-heading,.welcome-body {padding-inline:16px}
@@ -201,4 +199,25 @@ body:has(.welcome-modal[open]) {overflow:hidden}
   .summary-applicant {flex:auto;width:100%}
   .overview-document-groups {grid-template-columns:1fr;gap:9px}
   .guided-action {width:100%}
+}
+
+.welcome-body h3 {margin:0;color:var(--ink);font-size:16px;font-weight:750}
+.welcome-body .welcome-disclaimer {padding:0;background:none;color:var(--muted);font-size:12px;line-height:1.5}
+.header-tools {display:flex;align-items:center;justify-content:flex-end;gap:14px}
+.header-tools button {white-space:nowrap}
+.stage-number {display:grid;place-items:center;flex-shrink:0;width:22px;height:22px;border-radius:50%;border:1px solid #66877a;font-size:12px}
+.sidebar .sidebar-stage[data-active] {background:#254638;color:#e0f8bb}
+.sidebar .sidebar-stage[data-recommended] {border-color:#6e9b76;color:#d6efb3}
+.stage-connector {display:flex;align-items:center;gap:7px;margin:3px 0 7px 12px;color:#a0b8ae;font-size:11px}
+[data-tour-highlight] {outline:2px solid #a5d378;outline-offset:3px}
+.demo-tour {position:fixed;z-index:20;width:min(calc(100dvw - 24px),316px);max-height:calc(100dvh - 24px);overflow:auto;padding:13px 15px 10px;border:1px solid #aac7b5;border-radius:10px;background:white;box-shadow:0 8px 30px #173f3333;color:var(--ink);font-size:14px}
+.demo-tour-heading {display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.demo-tour-heading span {flex-shrink:0;color:var(--muted);font-size:11px}
+.demo-tour p {margin:5px 0 6px;color:var(--muted);line-height:1.45}
+.demo-tour-controls {display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px}
+.demo-tour-controls button {font-size:13px}
+@media(max-width:480px) {
+  .header-tools {gap:9px}
+  .header-tools button,.topbar .breadcrumbs {font-size:12px}
+  .header-tools button svg,.topbar .breadcrumbs svg {display:none}
 }
