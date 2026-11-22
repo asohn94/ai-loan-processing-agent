@@ -12,12 +12,12 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 243 >>
+<< /Length 241 >>
 stream
 BT /F1 16 Tf 48 740 Td
 (LoanFlow | Fictional document) Tj
 0 -30 Td (Asset statement) Tj
-0 -30 Td (Morgan Ellis / LP-1042) Tj
+0 -30 Td (John Smith / LP-1042) Tj
 0 -30 Td (Investments: $72,500.00) Tj
 0 -30 Td (Collateral value: $140,000.00) Tj
 0 -30 Td (Portfolio demo only) Tj
@@ -35,5 +35,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-605
+603
 %%EOF

@@ -18,5 +18,7 @@ test('extracts labeled income, cash, debt, investments and collateral from bundl
       await task.destroy();
     }
   }
+  assert.equal(applicants[0].name, "John Smith");
+  assert.equal(lines.filter(line => line.includes("John Smith / LP-1042")).length, 4);
   assert.deepEqual(parseFields(lines), applicants[0].values);
 });

@@ -23,20 +23,18 @@ The build exports a static site to `out/`. The package install step copies the m
 
 ## Try the workflow
 
-1. Start with Morgan Ellis or switch fictional applicants. Choose **New application** for an empty custom case.
-2. Open **Sample PDFs** and select **Process PDF** beside Tax return to complete the default checklist with real text extraction. You can also download the PDF and upload it as a tax return. The default case starts with three simulated documents.
-3. Open **Document processing** to inspect the financial values and source labels. Enter human corrections as needed.
-4. Open **Affordability** and adjust the requested amount, interest rate, term, DTI limit, and loan-to-value limit under **Edit assumptions**.
-5. Review the proposal, then record an illustrative approval or rejection. Approval requires a positive proposal and all configured documents. Changes to the inputs reset the decision.
-6. Use **Draft document request** on an incomplete checklist to generate editable, copyable email text.
+1. Start with John Smith (`johnsmith@gmail.com`) or switch fictional applicants. Choose **New application** for an empty custom case.
+2. The default checklist includes three sample documents marked **Received and Verified** for the demo. Use **Request Missing Documents** to open the email composer for the missing tax return. **Send** confirms a simulation locally.
+3. To complete the checklist, open **Sample PDFs** and process the tax return. You can also download and upload it manually. Manual uploads remain **Pending Verification** until marked verified in the demo.
+4. Inspect extracted values and enter corrections under **Document processing**. Under **Affordability**, edit the requested credit limit, annual interest rate, qualifying payment floor, maximum DTI, and maximum LTV.
+5. Use **Human review** to see checklist progress, the proposed credit limit, and any outstanding requirements. Record an illustrative human approval or rejection. Changes to inputs reset the decision.
 
 ## Model and boundaries
 
-- Current DTI divides existing monthly debt by gross monthly income. Projected DTI includes the proposed loan payment.
-- Monthly payment capacity equals maximum DTI × gross monthly income, less existing monthly debt, floored at zero. A fixed-rate annuity factor converts payment capacity to borrowing capacity. Proposed principal is the smallest of the requested amount, borrowing capacity, and collateral × maximum loan-to-value. Coverage divides collateral by proposed principal.
-- PDF.js extracts selectable text in the browser. Deterministic rules match supported financial labels. The app can derive annual or monthly income from the other period when one source takes precedence. Source labels distinguish simulated values, PDF filenames, derived values, and corrections.
-- Scans require OCR, which is outside the demo. Unrecognized labels and ambiguous values may require human correction. PDF extraction uses no language model or calibrated confidence scores.
-- Figures exclude fees, taxes, and insurance. The model demonstrates a secured loan workflow and produces illustrative figures only. The app has no mail delivery, credit bureau, banking API, automated lending decision, or durable case storage. Reloading resets the workspace. Use fictional PDFs only.
+- For this secured line of credit, income-based capacity divides monthly DTI headroom (maximum DTI × gross monthly income minus existing monthly liabilities, floored at zero) by the greater of the monthly interest rate and the qualifying payment floor. The example assumes a full draw for underwriting. Collateral-based capacity equals collateral value × maximum LTV. The proposed limit is the smallest of the request and both capacities.
+- The interest illustration uses outstanding balance × annual interest rate ÷ 12. The qualifying payment is an underwriting assumption and does not amortize the line. Figures exclude fees, taxes, and insurance.
+- PDF.js extracts selectable text locally. Deterministic rules match supported labels and track source filenames, derived values, fictional profile values, and human corrections. Scanned PDFs require OCR, which is outside this demo.
+- Verification statuses and human decisions are illustrative. Successfully extracted financial text does not establish authenticity. The demo has no mail delivery, credit bureau, banking API, or durable case storage. Reloading resets the workspace. Use fictional PDFs only.
 
 ## Deploy to Vercel
 
