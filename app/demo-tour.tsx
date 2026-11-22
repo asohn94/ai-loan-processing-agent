@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 
 export type TourStep = 0 | 1 | 2 | 3 | 4;
 
@@ -9,7 +10,7 @@ const tips = {
   1: { title: 'Agent Summary', text: 'This is your starting point. The agent summarizes what it found and highlights what needs your attention next.' },
   2: { title: 'Applicant Selection', text: 'Try two scenarios: John Smith has missing documents, while Jane Doe is ready for human review.' },
   3: { title: 'John Smith — Missing Documents', text: 'The agent identified missing information. Click here to open a prefilled client email requesting the outstanding documents.' },
-  4: { title: 'Jane Doe — Human Review', text: 'Jane’s documents are complete. Open Human Review to verify the agent’s findings and approve the proposed loan.' },
+  4: { title: 'Jane Doe — Human Review', text: 'Jane\'s documents are complete and the agent has prepared a credit proposal. Click Human Review to verify the assessment and approve the loan.' },
 };
 
 export const tourSessionKey = 'loanflow.demo-tour';
@@ -91,7 +92,10 @@ export function DemoTour({ step, targetId, reviewing, readyForReview, onNavigate
     <aside ref={popover} className="demo-tour" aria-labelledby="demo-tour-title">
       <div className="demo-tour-heading">
         <strong id="demo-tour-title">{tip?.title ?? 'Take a quick tour?'}</strong>
-        {step > 0 && <span>Step {step} of 4</span>}
+        <div className="demo-tour-meta">
+          {step > 0 && <span>Step {step} of 4</span>}
+          <button className="icon-button" aria-label="Close tour" onClick={() => onExit('skipped')}><X size={16} aria-hidden="true"/></button>
+        </div>
       </div>
       <p aria-live="polite">{description}</p>
       <div className="demo-tour-controls">

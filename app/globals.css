@@ -221,3 +221,22 @@ body:has(.welcome-modal[open]) {overflow:hidden}
   .header-tools button,.topbar .breadcrumbs {font-size:12px}
   .header-tools button svg,.topbar .breadcrumbs svg {display:none}
 }
+
+.sidebar[data-tour-review] #review-nav {
+  background:#d7edc6;color:#173f33;border-color:#d7edc6;outline:2px solid #b9e37d;outline-offset:3px;
+}
+.sidebar[data-tour-review] #review-nav .stage-number {border-color:#60905f}
+.sidebar[data-tour-review] #review-nav .review-nav-icon {color:#175d46}
+.sidebar[data-tour-review] .sidebar-pages > li:first-child,
+.sidebar[data-tour-review] .stage-connector {opacity:.76}
+.sidebar[data-tour-review] .sidebar-pages > li:first-child:hover,
+.sidebar[data-tour-review] .sidebar-pages > li:first-child:focus-within {opacity:1}
+@media(prefers-reduced-motion:no-preference) {
+  .sidebar[data-tour-review] #review-nav {animation:review-tour-pulse 1.8s ease-out 2}
+}
+@keyframes review-tour-pulse {
+  0%,100% {box-shadow:0 0 0 0 #b9e37d00}
+  45% {box-shadow:0 0 0 6px #b9e37d55}
+}
+.demo-tour-meta {display:flex;align-items:center;gap:4px}
+.demo-tour-meta .icon-button {width:25px;height:25px}
