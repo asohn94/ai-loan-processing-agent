@@ -23,7 +23,7 @@ The build exports a static site to `out/`. The package install step copies the m
 
 ## Try the workflow
 
-1. Start with John Smith (`johnsmith@gmail.com`) or switch fictional applicants. Choose **New application** for an empty custom case.
+1. Start with John Smith (`johnsmith@gmail.com`) or switch to Jane Doe to try a complete application. Choose **New application** for an empty custom case.
 2. The default checklist includes three sample documents marked **Received and Verified** for the demo. Use **Request Missing Documents** to open the email composer for the missing tax return. **Send** confirms a simulation locally.
 3. To complete the checklist, open **Sample PDFs** and process the tax return. You can also download and upload it manually. Manual uploads remain **Pending Verification** until marked verified in the demo.
 4. Inspect extracted values and enter corrections under **Document processing**. Under **Affordability**, edit the requested credit limit, annual interest rate, qualifying payment floor, maximum DTI, and maximum LTV.
